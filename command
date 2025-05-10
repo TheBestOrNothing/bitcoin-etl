@@ -1,0 +1,238 @@
+
+pip install -e .[streaming]
+
+bitcoind -daemon
+
+bitcoin-cli getblockchaininfo
+
+bitcoin-cli getrawtransaction 00c92d4c6bc900992eee63ff24649460884690aa2e732d029297726e946d48f7 true
+
+bitcoinetl export_blocks_and_transactions --start-block 890000 --end-block 890099\
+--provider-uri http://bitcoin:passw0rd@localhost:8332 --chain bitcoin \
+ --blocks-output blocks.json --transactions-output transactions.json
+
+
+bitcoinetl export_blocks_and_transactions --start-block 890001 --end-block 890009 --provider-uri http://bitcoin:passw0rd@localhost:8332 --chain bitcoin  --blocks-output blocks.json --transactions-output transactions.json
+
+bitcoinetl stream -p http://bitcoin:passw0rd@localhost:8332 --start-block 500000
+
+
+SELECT  * FROM `bigquery-public-data.crypto_bitcoin.blocks` blk 
+WHERE blk.hash = "0000000013ab9f8ed78b254a429d3d5ad52905362e01bf6c682940337721eb51" or
+      blk.hash = "0000000007bfd8453c331fd4bf3f7eafd6f40944c54ce0ab6bcfdd86853b14d7"
+
+# kafka
+
+bin/kafka-topics.sh --create --topic quickstart-events --bootstrap-server localhost:9092
+
+bin/kafka-topics.sh --describe --topic quickstart-events --bootstrap-server localhost:9092
+
+bin/kafka-console-producer.sh --topic quickstart-events --bootstrap-server localhost:9092
+
+bin/kafka-console-consumer.sh --topic quickstart-events --from-beginning --bootstrap-server localhost:9092
+
+bitcoinetl stream -p kafka/localhost:9092 --start-block 500000
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --start-block 500000 --output kafka/localhost:9092
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --start-block 0 --output kafka/localhost:9092
+
+bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+bin/kafka-console-consumer.sh --topic blocks -from-beginning --bootstrap-server localhost:9092
+
+# https://clickhouse.com/docs/integrations/kafka/kafka-table-engine
+
+2. Configure ClickHouse
+CREATE DATABASE bitcoin
+
+USE bitcoin
+
+3. Create the destination table
+
+CREATE TABLE blocks
+(
+  hash STRING NOT NULL OPTIONS(description=""Hash of this block""),
+  size INT64 OPTIONS(description=""The size of block data in bytes""),
+  stripped_size INT64 OPTIONS(description=""The size of block data in bytes excluding witness data""),
+  weight INT64 OPTIONS(description=""Three times the base size plus the total size. https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki""),
+  number INT64 NOT NULL OPTIONS(description=""The number of the block""),
+  version INT64 OPTIONS(description=""Protocol version specified in block header""),
+  merkle_root STRING OPTIONS(description=""The root node of a Merkle tree, where leaves are transaction hashes""),
+  timestamp TIMESTAMP NOT NULL OPTIONS(description=""Block creation timestamp specified in block header""),
+  timestamp_month DATE NOT NULL OPTIONS(description=""Month of the block creation timestamp specified in block header""),
+  nonce STRING OPTIONS(description=""Difficulty solution specified in block header""),
+  bits STRING OPTIONS(description=""Difficulty threshold specified in block header""),
+  coinbase_param STRING OPTIONS(description=""Data specified in the coinbase transaction of this block""),
+  transaction_count INT64 OPTIONS(description=""Number of transactions included in this block"")
+)
+ENGINE = ReplacingMergeTree
+PRIMARY KEY (hash)
+ORDER BY (hash)
+PARTITION BY timestamp_month
+OPTIONS 
+(
+  description=""All blocks Data is exported using https://github.com/blockchain-etl/bitcoin-etl""
+);
+
+CREATE TABLE blocks
+(
+  hash String,
+  size UInt64,
+  stripped_size UInt64,
+  weight UInt64,
+  number UInt64,
+  version UInt64,
+  merkle_root String,
+  timestamp DateTime,
+  timestamp_month Date,
+  nonce String,
+  bits String,
+  coinbase_param String,
+  transaction_count UInt64
+)
+ENGINE = ReplacingMergeTree()
+PRIMARY KEY (hash)
+PARTITION BY toYYYYMM(timestamp_month)
+ORDER BY hash;
+
+
+4. Create and populate the topic
+
+bin/kafka-topics.sh --create --topic blocks --bootstrap-server localhost:9092
+
+5. Create the Kafka table engine
+
+CREATE TABLE blocks_queue
+(
+  hash String,
+  size UInt64,
+  stripped_size UInt64,
+  weight UInt64,
+  number UInt64,
+  version UInt64,
+  merkle_root String,
+  timestamp DateTime,
+  timestamp_month Date,
+  nonce String,
+  bits String,
+  coinbase_param String,
+  transaction_count UInt64
+)
+ENGINE = Kafka('localhost:9092', 'blocks', 'bitcoin', 'JSONEachRow') settings kafka_thread_per_consumer = 0, kafka_num_consumers = 1;
+
+6. Create the materialized view
+
+CREATE MATERIALIZED VIEW blocks_mv TO blocks AS
+SELECT *
+FROM blocks_queue;
+
+
+-----------------------------------------------------------------
+
+please convert the ddl from bigquery to clickhouse ,  If you change anything , please let me know
+
+CREATE TABLE `bigquery-public-data.crypto_bitcoin.transactions`
+(
+`hash` STRING NOT NULL OPTIONS(description=""The hash of this transaction""),
+size INT64 OPTIONS(description=""The size of this transaction in bytes""),
+virtual\_size INT64 OPTIONS(description=""The virtual transaction size (differs from size for witness transactions)""),
+version INT64 OPTIONS(description=""Protocol version specified in block which contained this transaction""),
+lock\_time INT64 OPTIONS(description=""Earliest time that miners can include the transaction in their hashing of the Merkle root to attach it in the latest block of the blockchain""),
+block\_hash STRING NOT NULL OPTIONS(description=""Hash of the block which contains this transaction""),
+block\_number INT64 NOT NULL OPTIONS(description=""Number of the block which contains this transaction""),
+block\_timestamp TIMESTAMP NOT NULL OPTIONS(description=""Timestamp of the block which contains this transaction""),
+block\_timestamp\_month DATE NOT NULL OPTIONS(description=""Month of the block which contains this transaction""),
+input\_count INT64 OPTIONS(description=""The number of inputs in the transaction""),
+output\_count INT64 OPTIONS(description=""The number of outputs in the transaction""),
+input\_value NUMERIC OPTIONS(description=""Total value of inputs in the transaction""),
+output\_value NUMERIC OPTIONS(description=""Total value of outputs in the transaction""),
+is\_coinbase BOOL OPTIONS(description=""true if this transaction is a coinbase transaction""),
+fee NUMERIC OPTIONS(description=""The fee paid by this transaction""),
+inputs ARRAY\<STRUCT\<index INT64 NOT NULL OPTIONS(description=""0-indexed number of an input within a transaction""), spent\_transaction\_hash STRING OPTIONS(description=""The hash of the transaction which contains the output that this input spends""), spent\_output\_index INT64 OPTIONS(description=""The index of the output this input spends""), script\_asm STRING OPTIONS(description=""Symbolic representation of the bitcoin's script language op-codes""), script\_hex STRING OPTIONS(description=""Hexadecimal representation of the bitcoin's script language op-codes""), sequence INT64 OPTIONS(description=""A number intended to allow unconfirmed time-locked transactions to be updated before being finalized; not currently used except to disable locktime in a transaction""), required\_signatures INT64 OPTIONS(description=""The number of signatures required to authorize the spent output""), type STRING OPTIONS(description=""The address type of the spent output""), addresses ARRAY<STRING> OPTIONS(description=""Addresses which own the spent output""), value NUMERIC OPTIONS(description=""The value in base currency attached to the spent output"")>> OPTIONS(description=""Transaction inputs""),
+outputs ARRAY\<STRUCT\<index INT64 NOT NULL OPTIONS(description=""0-indexed number of an output within a transaction used by a later transaction to refer to that specific output""), script\_asm STRING OPTIONS(description=""Symbolic representation of the bitcoin's script language op-codes""), script\_hex STRING OPTIONS(description=""Hexadecimal representation of the bitcoin's script language op-codes""), required\_signatures INT64 OPTIONS(description=""The number of signatures required to authorize spending of this output""), type STRING OPTIONS(description=""The address type of the output""), addresses ARRAY<STRING> OPTIONS(description=""Addresses which own this output""), value NUMERIC OPTIONS(description=""The value in base currency attached to this output"")>> OPTIONS(description=""Transaction outputs"")
+)
+PARTITION BY block\_timestamp\_month
+OPTIONS(
+description=""All transactions.\nData is exported using [https://github.com/blockchain-etl/bitcoin-etl\n](https://github.com/blockchain-etl/bitcoin-etl\n)"",
+labels=\[(""dataplex-data-documentation-published-project"", ""vini-gcp-project""), (""dataplex-data-documentation-published-location"", ""us-central1""), (""dataplex-data-documentation-published-scan"", ""ab8352e1e-6be2-4e7e-9083-c1412cbada9f"")]
+);
+
+CREATE TABLE transactions
+(
+  hash String,
+  size UInt64,
+  virtual_size UInt64,
+  version UInt64,
+  lock_time UInt64,
+  block_hash String,
+  block_number UInt64,
+  block_timestamp DateTime,
+  block_timestamp_month Date,
+  input_count UInt64,
+  output_count UInt64,
+  input_value Float64,
+  output_value Float64,
+  is_coinbase BOOL,
+  fee Float64,
+  inputs Array(Tuple(index UInt64, spent_transaction_hash String, spent_output_index UInt64, script_asm String, script_hex String, sequence UInt64, required_signatures UInt64, type String, addresses Array(String), value Float64)),
+  outputs Array(Tuple(index UInt64, script_asm String, script_hex String, required_signatures UInt64, type String, addresses Array(String), value Float64))
+)
+ENGINE = ReplacingMergeTree()
+PRIMARY KEY (block_hash, hash)
+PARTITION BY toYYYYMM(block_timestamp_month)
+ORDER BY (block_hash, hash);
+
+
+bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic transactions
+
+bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic transactions --group bitcoin 
+
+
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group bitcoin
+
+
+CREATE TABLE transactions_queue
+(
+  hash String,
+  size UInt64,
+  virtual_size UInt64,
+  version UInt64,
+  lock_time UInt64,
+  block_hash String,
+  block_number UInt64,
+  block_timestamp DateTime,
+  block_timestamp_month Date,
+  input_count UInt64,
+  output_count UInt64,
+  input_value Float64,
+  output_value Float64,
+  is_coinbase BOOL,
+  fee Float64,
+  inputs Array(Tuple(index UInt64, spent_transaction_hash String, spent_output_index UInt64, script_asm String, script_hex String, sequence UInt64, required_signatures UInt64, type String, addresses Array(String), value Float64)),
+  outputs Array(Tuple(index UInt64, script_asm String, script_hex String, required_signatures UInt64, type String, addresses Array(String), value Float64))
+)
+ENGINE = Kafka('localhost:9092', 'transactions', 'bitcoin', 'JSONEachRow') settings kafka_thread_per_consumer = 0, kafka_num_consumers = 1;
+
+6. Create the materialized view
+
+CREATE MATERIALIZED VIEW transaction_mv TO transactions AS
+SELECT *
+FROM transactions_queue;
+
+
+bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group bitcoin
+
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --start-block 0 --output kafka/localhost:9092 --period-seconds 0 -b 100 -B 1000 --log-file log --enrich True 
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 100 -B 1000 --log-file log --enrich True -l last_synced_block.txt
+
+
+OPTIMIZE TABLE transactions FINAL;
+OPTIMIZE TABLE blocks FINAL;
+
+SELECT count() FROM transactions;

@@ -27,6 +27,16 @@ Supported chains:
 - dash
 - zcash
 
+
+stream blockchain data continually to Kafka ([Reference](#stream)):
+
+```bash
+> python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --start-block 0 --output kafka/localhost:9092 --period-seconds 0 -b 100 -B 1000 --log-file log --enrich True 
+
+> python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 100 -B 1000 --log-file log --enrich True -l last_synced_block.txt
+
+```
+
 Stream blockchain data continually to console ([Reference](#stream)):
 
 ```bash
