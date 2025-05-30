@@ -23,6 +23,8 @@
 
 from bitcoinetl.domain.block import BtcBlock
 from bitcoinetl.mappers.transaction_mapper import BtcTransactionMapper
+import json
+from datetime import datetime
 
 
 class BtcBlockMapper(object):
@@ -42,9 +44,17 @@ class BtcBlockMapper(object):
         block.version = json_dict.get('version')
         block.merkle_root = json_dict.get('merkleroot')
         block.timestamp = json_dict.get('time')
+        # block.timestamp_month = datetime.fromtimestamp(block.timestamp).strftime('%Y-%m')
+        # block.timestamp_month = datetime.fromtimestamp(block.timestamp).date()
+        # block.timestamp_month = block.timestamp
         # bitcoin and all clones except zcash return integer nonce, zcash return hex string
         block.nonce = to_hex(json_dict.get('nonce'))
         block.bits = json_dict.get('bits')
+
+        # Add by gitcoins
+        block.previous_block_hash = json_dict.get('previousblockhash')
+        block.difficulty = json_dict.get('difficulty')
+        block.nTx = json_dict.get('nTx')
 
         raw_transactions = json_dict.get('tx')
         if raw_transactions is not None and len(raw_transactions) > 0:
@@ -71,10 +81,15 @@ class BtcBlockMapper(object):
             'version': block.version,
             'merkle_root': block.merkle_root,
             'timestamp': block.timestamp,
+            # 'timestamp_month': block.timestamp_month,
             'nonce': block.nonce,
             'bits': block.bits,
             'coinbase_param': block.coinbase_param,
-            'transaction_count': len(block.transactions)
+            'transaction_count': len(block.transactions),
+            'previous_block_hash': block.previous_block_hash,
+            'difficulty': float(block.difficulty),
+            'nTx': block.nTx,
+            'transactions': block.transactions
         }
 
 

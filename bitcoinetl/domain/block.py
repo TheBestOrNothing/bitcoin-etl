@@ -37,7 +37,14 @@ class BtcBlock(object):
         self.bits = None
         self.coinbase_param = None
 
+        # Add previous_block_hash, difficulty and nTx
+        self.previous_block_hash = None
+        self.difficulty = None
+        self.nTx = None
+        self.timestamp_month = None
+
         self.transactions = []
+
 
     def has_full_transactions(self):
         return len(self.transactions) > 0 and isinstance(self.transactions[0], BtcTransaction)

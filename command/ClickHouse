@@ -119,7 +119,7 @@ CREATE TABLE blocks_queue
   coinbase_param String,
   transaction_count UInt64
 )
-ENGINE = Kafka('localhost:9092', 'blocks', 'bitcoin', 'JSONEachRow') settings kafka_thread_per_consumer = 0, kafka_num_consumers = 1;
+ENGINE = Kafka('localhost:9092', 'blocks', 'bitcoin-group', 'JSONEachRow') settings kafka_thread_per_consumer = 0, kafka_num_consumers = 3;
 
 6. Create the materialized view
 
@@ -215,11 +215,11 @@ CREATE TABLE transactions_queue
   inputs Array(Tuple(index UInt64, spent_transaction_hash String, spent_output_index UInt64, script_asm String, script_hex String, sequence UInt64, required_signatures UInt64, type String, addresses Array(String), value Float64)),
   outputs Array(Tuple(index UInt64, script_asm String, script_hex String, required_signatures UInt64, type String, addresses Array(String), value Float64))
 )
-ENGINE = Kafka('localhost:9092', 'transactions', 'bitcoin', 'JSONEachRow') settings kafka_thread_per_consumer = 0, kafka_num_consumers = 1;
+ENGINE = Kafka('localhost:9092', 'transactions', 'bitcoin-group', 'JSONEachRow') settings kafka_thread_per_consumer = 0, kafka_num_consumers = 3;
 
 6. Create the materialized view
 
-CREATE MATERIALIZED VIEW transaction_mv TO transactions AS
+CREATE MATERIALIZED VIEW transactions_mv TO transactions AS
 SELECT *
 FROM transactions_queue;
 
@@ -236,3 +236,18 @@ OPTIMIZE TABLE transactions FINAL;
 OPTIMIZE TABLE blocks FINAL;
 
 SELECT count() FROM transactions;
+
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 2 -B 10 --log-file log --enrich False -l last_synced_block.txt
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 10 -B 10 --log-file log --enrich False -l last_synced_block.txt
+
+
+
+kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe \
+  --group bitcoin-group
+
+
+python3 bitcoinetl.py stream -p http://bitcoin:passw0rd@192.168.2.187:8332 --output kafka/localhost:9092 --period-seconds 0 -b 10 -B 10 --log-file log --enrich true --start-block 344000 --log-file log
