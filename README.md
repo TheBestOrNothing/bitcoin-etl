@@ -75,6 +75,7 @@ For the latest version, check out the repo and call
       - [get_block_range_for_date](#getblockrangefordate)
       - [export_all](#exportall)
       - [stream](#stream)
+      - [stream_block](#stream_block)
     - [Running Tests](#running-tests)
     - [Running Tox Tests](#running-tox-tests)
     - [Public Datasets in BigQuery](#public-datasets-in-bigquery)
@@ -308,6 +309,11 @@ monotonic https://twitter.com/EvgeMedvedev/status/1073844856009576448. You can f
 
 You can tune `--export-batch-size`, `--max-workers` for performance.
 
+#### stream_block
+
+```bash
+python3 bitcoinetl.py stream_block -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 10 -B 50 --enrich false --start-block 0
+```
 #### stream
 
 ```bash

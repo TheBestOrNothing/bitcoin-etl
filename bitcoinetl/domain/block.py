@@ -44,6 +44,7 @@ class BtcBlock(object):
         self.timestamp_month = None
 
         self.transactions = []
+        self.transactions_hashes = []
 
 
     def has_full_transactions(self):
