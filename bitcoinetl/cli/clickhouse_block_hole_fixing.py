@@ -11,6 +11,26 @@ from bitcoinetl.streaming.btc_streamer_adapter import BtcStreamerAdapter
 from blockchainetl.streaming.streamer import Streamer
 
 
+from typing import Sequence, List
+
+# === CONFIGURATION ===
+CLICKHOUSE_HOST = 'localhost'
+CLICKHOUSE_PORT = 8123
+CLICKHOUSE_USER = 'default'
+CLICKHOUSE_PASSWORD = 'password'
+DATABASE = 'bitcoin'
+
+END_PARTITION = 201601 # e.g. 201501 for January 2015
+
+# === INIT CLIENT ===
+client = get_client(
+    host=CLICKHOUSE_HOST,
+    port=CLICKHOUSE_PORT,
+    username=CLICKHOUSE_USER,
+    password=CLICKHOUSE_PASSWORD,
+    database=DATABASE,
+)
+
 def fix_block_hole(missing_blocks):
     """Fixes a hole in the blockchain by exporting a specific block."""
 
@@ -39,72 +59,64 @@ def fix_block_hole(missing_blocks):
     streamer_adapter.close()
 
 
-# === CONFIGURATION ===
-CLICKHOUSE_HOST = 'localhost'
-CLICKHOUSE_PORT = 8123
-CLICKHOUSE_USER = 'default'
-CLICKHOUSE_PASSWORD = 'password'
-DATABASE = 'bitcoin'
-
-START_MONTH = '2014-10'  # yyyy-mm
-END_MONTH   = '2016-05'
-
-# === INIT CLIENT ===
-client = get_client(
-    host=CLICKHOUSE_HOST,
-    port=CLICKHOUSE_PORT,
-    username=CLICKHOUSE_USER,
-    password=CLICKHOUSE_PASSWORD,
-    database=DATABASE,
-)
-
-# === GENERATE PARTITIONS ===
-def generate_partitions(start, end):
-    partitions = []
-    start_date = datetime.strptime(start, '%Y-%m')
-    end_date = datetime.strptime(end, '%Y-%m')
-    current = start_date
-    while current <= end_date:
-        partitions.append(current.strftime('%Y%m'))
-        current += relativedelta(months=1)
-    return partitions
-
-# === MAIN LOOP ===
-partitions = generate_partitions(START_MONTH, END_MONTH)
-
-for partition in partitions:
-    print(f'\n🧪 Querying Partition: {partition}')
-    query = f"""
-    WITH flattened AS (
-        SELECT
-            hash AS block_hash,
-            tx_hash,
-            number
-        FROM bitcoin.blocks_fat
-        ARRAY JOIN transactions AS tx_hash
-        WHERE toYYYYMM(timestamp_month) = {partition}
-    )
-    SELECT
-        flattened.number,
-        flattened.block_hash,
-        flattened.tx_hash
-    FROM flattened
-    LEFT ANTI JOIN (
-        SELECT hash
-        FROM bitcoin.transactions_fat
-        WHERE toYYYYMM(block_timestamp_month) = {partition}
-    ) AS txs
-    ON flattened.tx_hash = txs.hash
+def missing_blocks_by_partition(
+    client,          # clickhouse-connect or clickhouse-driver client
+    partition: int,  # e.g. 202504
+) -> List[int]:
     """
-    result = client.query(query)
-    rows = result.result_rows
-    if rows:
-        print(f"⚠️  Missing transactions in partition {partition}: {len(rows)}")
-        for row in rows:
-            print(f"    Block: {row[0]}  Missing TX: {row[2]}")
-        # Fix the hole by exporting the missing transactions
-        missing_blocks = {row[0] for row in rows}
-        fix_block_hole(missing_blocks)
-    else:
-        print(f"✅ All transactions found in partition {partition}")
+    Find every block number that is **absent** from the blocks_fat table,
+    where the sequence length is determined by the highest block number
+    present in the specified YYYYMM partition.
 
+    Parameters
+    ----------
+    client : ClickHouse client
+        An already-constructed clickhouse_connect.Client or clickhouse_driver.Client.
+    partition : int
+        The target partition as an integer in YYYYMM form (e.g. 202504).
+
+    Returns
+    -------
+    list[int]
+        Sorted list of block numbers that are missing.
+    """
+
+    query = """
+    WITH seq AS (
+        SELECT number
+        FROM numbers(
+            toUInt64(
+                ifNull(
+                    (SELECT max(number)
+                     FROM blocks_fat
+                     WHERE toYYYYMM(timestamp_month) = %(partition)s),
+                0) + 1
+            )
+        )
+    )
+    SELECT seq.number AS missing_block_number
+    FROM seq
+    LEFT ANTI JOIN blocks_fat AS b ON seq.number = b.number
+    ORDER BY missing_block_number
+    """
+
+    # clickhouse-connect → .result_rows ; clickhouse-driver → .execute & fetchall
+    rows: Sequence[Sequence[int]] = client.query(
+        query,
+        parameters={"partition": partition}
+    ).result_rows
+
+    return [row[0] for row in rows]
+
+
+missing_blocks = missing_blocks_by_partition(client, END_PARTITION)
+if missing_blocks:
+    print(f"Missing blocks in partition {END_PARTITION}: {len(missing_blocks)}")
+    print(f"First Missing blocks : {missing_blocks[0]}")
+    # for block_number in missing_blocks:
+    #   print(f"  Block Number: {block_number}")
+    
+    # Fix the hole by exporting the missing blocks
+    fix_block_hole(missing_blocks)
+
+print(f"No Missing blocks before partition {END_PARTITION}")

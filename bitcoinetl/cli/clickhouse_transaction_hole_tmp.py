@@ -4,16 +4,23 @@ from dateutil.relativedelta import relativedelta
 
 from bitcoinetl.enumeration.chain import Chain
 from bitcoinetl.rpc.bitcoin_rpc import BitcoinRpc
+from bitcoinetl.jobs.enrich_transactions import EnrichTransactionsJob
 
 from blockchainetl.thread_local_proxy import ThreadLocalProxy
 from bitcoinetl.streaming.streaming_utils import get_item_exporter
 from bitcoinetl.streaming.btc_streamer_adapter import BtcStreamerAdapter
 from blockchainetl.streaming.streamer import Streamer
+from bitcoinetl.service.btc_service import BtcService
 
+# This script do not work, please use the `bitcoinetl/cli/clickhouse_block_hole_fixing.py` script instead.
 
-def fix_block_hole(missing_blocks):
-    """Fixes a hole in the blockchain by exporting a specific block."""
-
+# This script is designed to fix holes in the Bitcoin blockchain by exporting missing transactions
+# from ClickHouse database. It queries the ClickHouse database for missing transactions in specified
+# partitions and then uses the Bitcoin RPC to fetch and enrich those transactions before exporting them
+# to a specified output (e.g., Kafka).
+def fix_transaction_hole(missing_transactions_hashes):
+    """Fixes a hole in the blockchain by exporting specific transactions."""
+    
     provider_uri = 'http://bitcoin:passw0rd@localhost:8332'
     output = 'kafka/localhost:9092'
     chain = Chain.BITCOIN
@@ -21,24 +28,32 @@ def fix_block_hole(missing_blocks):
     enrich = True
     max_workers = 1
 
-    streamer_adapter = BtcStreamerAdapter(
-        bitcoin_rpc=ThreadLocalProxy(lambda: BitcoinRpc(provider_uri)),
-        item_exporter=get_item_exporter(output),
-        chain=chain,
+    bitcoin_rpc=ThreadLocalProxy(lambda: BitcoinRpc(provider_uri))
+    btc_service = BtcService(bitcoin_rpc, chain)
+
+    # missing_transactions = btc_service.get_transactions_by_hashes(missing_transactions_hashes)
+    missing_transactions = btc_service._get_raw_transactions_by_hashes_batched(missing_transactions_hashes)
+    print(f"Found {len(missing_transactions)} missing transactions to enrich.")
+    # print("missing transaction 0", missing_transactions[0])
+
+    enrich_transaction = EnrichTransactionsJob(
+        transactions_iterable=missing_transactions,
         batch_size=batch_size,
-        enable_enrich=enrich,
-        max_workers=max_workers
+        bitcoin_rpc=ThreadLocalProxy(lambda: BitcoinRpc(provider_uri)),
+        max_workers=max_workers,
+        item_exporter=get_item_exporter(output),
+        chain=chain
     )
+
+    # Start the job to enrich transactions
+    enrich_transaction._start()
+    enrich_transaction._export()
+    enrich_transaction._end()
+
+
+
+
     
-    streamer_adapter.open()
-    for block_number in missing_blocks:
-        # Export the specific block
-        streamer_adapter.export_all(start_block=block_number, end_block=block_number)
-        print(f"Fixed Block: {block_number}")
-
-    streamer_adapter.close()
-
-
 # === CONFIGURATION ===
 CLICKHOUSE_HOST = 'localhost'
 CLICKHOUSE_PORT = 8123
@@ -46,8 +61,8 @@ CLICKHOUSE_USER = 'default'
 CLICKHOUSE_PASSWORD = 'password'
 DATABASE = 'bitcoin'
 
-START_MONTH = '2015-07'  # yyyy-mm
-END_MONTH   = '2016-05'
+START_MONTH = '2015-01'  # yyyy-mm
+END_MONTH   = '2015-01'
 
 # === INIT CLIENT ===
 client = get_client(
@@ -101,10 +116,11 @@ for partition in partitions:
     if rows:
         print(f"⚠️  Missing transactions in partition {partition}: {len(rows)}")
         for row in rows:
-            print(f"    Block: {row[0]}  Missing TX: {row[2]}")
+            print(f"    Block: {row[0]}  Block Hash: {row[1]}  Missing TX: {row[2]}")
         # Fix the hole by exporting the missing transactions
-        missing_blocks = {row[0] for row in rows}
-        fix_block_hole(missing_blocks)
+        # Get all transactions for the missing TX hashes
+        missing_transactions = [row[2] for row in rows]
+        fix_transaction_hole(missing_transactions)
     else:
         print(f"✅ All transactions found in partition {partition}")
 
