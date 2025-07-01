@@ -292,7 +292,7 @@ def has_single_active_part(client, partition):
     query = f"""
         SELECT count(*) AS part_count
         FROM system.parts
-        WHERE database = '{DATABASE}'
+        WHERE database = 'bitcoin'
           AND table = 'transactions_fat'
           AND active
           AND partition = '{partition}'
