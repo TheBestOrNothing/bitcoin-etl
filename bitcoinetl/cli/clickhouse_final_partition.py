@@ -90,6 +90,7 @@ def main():
             optimize_partition_final(client, partition)
         except Exception as e:
             print(f"❌ Failed to optimize partition {partition}: {e}")
+            return
 
 if __name__ == "__main__":
     main()

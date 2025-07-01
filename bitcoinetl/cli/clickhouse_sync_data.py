@@ -288,6 +288,43 @@ def scan_for_transaction_holes(client, from_partition: int = None):
 
     print("✅ All checked partitions are transactionally consistent.")
 
+def has_single_active_part(client, partition):
+    query = f"""
+        SELECT count(*) AS part_count
+        FROM system.parts
+        WHERE database = '{DATABASE}'
+          AND table = 'transactions_fat'
+          AND active
+          AND partition = '{partition}'
+    """
+    result = client.query(query)
+    return result.result_rows[0][0] <= 1
+
+def has_duplicate_hashes(client, partition):
+    query = f"""
+        SELECT count(*) > 0
+        FROM (
+            SELECT hash, count(*) AS c
+            FROM transactions_fat
+            WHERE toYYYYMM(block_timestamp_month) = {partition}
+            GROUP BY hash
+            HAVING c > 1
+        )
+    """
+    result = client.query(query)
+    return result.result_rows[0][0] == 1
+
+def partition_not_fully_optimized(client, partition):
+    """
+    Checks if a partition is not fully optimized.
+    Returns True if it needs optimization, False otherwise.
+    """
+    if not has_single_active_part(client, partition):
+        return True
+    if has_duplicate_hashes(client, partition):
+        return True
+    return False
+
 def scan_and_update(client, from_partition: int = None):
     """
     Scans partitions for transaction holes and updates inputs and outputs tables.
@@ -313,6 +350,10 @@ def scan_and_update(client, from_partition: int = None):
         if check_partition_for_holes(partition, client):
             print(f"⛔ Stopping: transaction hole found in partition {partition}")
             print(f"🚧 First block hole found in partition {block_hole_partition}")
+            return
+
+        if partition_not_fully_optimized(client, partition):
+            print(f"⛔ Stopping: not fully optimized partition {partition}")
             return
 
         populate_inputs(partition, client)
