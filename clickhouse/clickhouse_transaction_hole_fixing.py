@@ -18,7 +18,7 @@ def fix_block_hole(missing_blocks):
     output = 'kafka/localhost:9092'
     chain = Chain.BITCOIN
     batch_size = 1
-    enrich = True
+    enrich = False
     max_workers = 1
 
     streamer_adapter = BtcStreamerAdapter(
@@ -33,8 +33,11 @@ def fix_block_hole(missing_blocks):
     streamer_adapter.open()
     for block_number in missing_blocks:
         # Export the specific block
-        streamer_adapter.export_all(start_block=block_number, end_block=block_number)
-        print(f"Fixed Block: {block_number}")
+        try:
+            streamer_adapter.export_all(start_block=block_number, end_block=block_number)
+            print(f"Fixed Block: {block_number}")
+        except Exception as e:
+            print(f"Error fixing block {block_number}: {e}")
 
     streamer_adapter.close()
 
@@ -46,8 +49,8 @@ CLICKHOUSE_USER = 'default'
 CLICKHOUSE_PASSWORD = 'password'
 DATABASE = 'bitcoin'
 
-START_MONTH = '2015-07'  # yyyy-mm
-END_MONTH   = '2016-05'
+START_MONTH = '2015-08'  # yyyy-mm
+END_MONTH   = '2016-01'
 
 # === INIT CLIENT ===
 client = get_client(
