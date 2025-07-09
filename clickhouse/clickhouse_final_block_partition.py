@@ -24,7 +24,7 @@ def get_partitions(client, start_partition):
         SELECT DISTINCT partition
         FROM system.parts
         WHERE database = '{DATABASE}'
-          AND table = 'transactions_fat'
+          AND table = 'blocks_fat'
           AND active
           AND partition >= '{start_partition}'
         ORDER BY partition
@@ -37,7 +37,7 @@ def has_single_active_part(client, partition):
         SELECT count(*) AS part_count
         FROM system.parts
         WHERE database = '{DATABASE}'
-          AND table = 'transactions_fat'
+          AND table = 'blocks_fat'
           AND active
           AND partition = '{partition}'
     """
@@ -49,8 +49,8 @@ def has_duplicate_hashes(client, partition):
         SELECT count(*) > 0
         FROM (
             SELECT hash, count(*) AS c
-            FROM transactions_fat
-            WHERE toYYYYMM(block_timestamp_month) = {partition}
+            FROM blocks_fat 
+            WHERE toYYYYMM(timestamp_month) = {partition}
             GROUP BY hash
             HAVING c > 1
         )
@@ -68,15 +68,15 @@ def is_partition_fully_optimized(client, partition):
 def optimize_partition_final(client, partition):
     print(f">>> Checking partition {partition}...")
     if is_partition_fully_optimized(client, partition):
-        print(f"✓ Partition {partition} is fully optimized. Skipping.")
+        print(f"✓ Partition {partition} in blocks_fat is fully optimized. Skipping.")
         return
-    print(f"⏳ Optimizing partition {partition}...")
-    query = f"OPTIMIZE TABLE transactions_fat PARTITION '{partition}' FINAL"
+    print(f"⏳ Optimizing partition {partition} in blocks_fat...")
+    query = f"OPTIMIZE TABLE blocks_fat PARTITION '{partition}' FINAL"
     client.command(query)
-    print(f"✅ Partition {partition} optimized.")
+    print(f"✅ Partition in blocks_fat {partition} optimized.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Deduplicate partitions in transactions_fat from a start partition onward")
+    parser = argparse.ArgumentParser(description="Deduplicate partitions in blocks_fat from a start partition onward")
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 

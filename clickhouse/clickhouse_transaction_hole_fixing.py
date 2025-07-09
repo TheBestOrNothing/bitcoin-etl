@@ -9,6 +9,7 @@ from blockchainetl.thread_local_proxy import ThreadLocalProxy
 from bitcoinetl.streaming.streaming_utils import get_item_exporter
 from bitcoinetl.streaming.btc_streamer_adapter import BtcStreamerAdapter
 from blockchainetl.streaming.streamer import Streamer
+import argparse
 
 
 def fix_block_hole(missing_blocks):
@@ -49,8 +50,7 @@ CLICKHOUSE_USER = 'default'
 CLICKHOUSE_PASSWORD = 'password'
 DATABASE = 'bitcoin'
 
-START_MONTH = '2015-08'  # yyyy-mm
-END_MONTH   = '2016-01'
+DEFAULT_START_PARTITION = '200901'
 
 # === INIT CLIENT ===
 client = get_client(
@@ -61,22 +61,29 @@ client = get_client(
     database=DATABASE,
 )
 
-# === GENERATE PARTITIONS ===
-def generate_partitions(start, end):
-    partitions = []
-    start_date = datetime.strptime(start, '%Y-%m')
-    end_date = datetime.strptime(end, '%Y-%m')
-    current = start_date
-    while current <= end_date:
-        partitions.append(current.strftime('%Y%m'))
-        current += relativedelta(months=1)
-    return partitions
+# === INIT CLIENT ===
+client = get_client(
+    host=CLICKHOUSE_HOST,
+    port=CLICKHOUSE_PORT,
+    username=CLICKHOUSE_USER,
+    password=CLICKHOUSE_PASSWORD,
+    database=DATABASE,
+)
 
-# === MAIN LOOP ===
-partitions = generate_partitions(START_MONTH, END_MONTH)
+def get_partitions(client, start_partition):
+    query = f"""
+        SELECT DISTINCT partition
+        FROM system.parts
+        WHERE database = '{DATABASE}'
+          AND table = 'transactions_fat'
+          AND active
+          AND partition >= '{start_partition}'
+        ORDER BY partition
+    """
+    result = client.query(query)
+    return [row[0] for row in result.result_rows]
 
-for partition in partitions:
-    print(f'\n🧪 Querying Partition: {partition}')
+def transaction_hole_finding(client, partition):
     query = f"""
     WITH flattened AS (
         SELECT
@@ -100,14 +107,32 @@ for partition in partitions:
     ON flattened.tx_hash = txs.hash
     """
     result = client.query(query)
-    rows = result.result_rows
-    if rows:
-        print(f"⚠️  Missing transactions in partition {partition}: {len(rows)}")
-        for row in rows:
-            print(f"    Block: {row[0]}  Missing TX: {row[2]}")
-        # Fix the hole by exporting the missing transactions
-        missing_blocks = {row[0] for row in rows}
-        fix_block_hole(missing_blocks)
-    else:
-        print(f"✅ All transactions found in partition {partition}")
+    return result.result_rows
 
+def main():
+    parser = argparse.ArgumentParser(description="Deduplicate partitions in transactions_fat from a start partition onward")
+    parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
+    args = parser.parse_args()
+
+    partitions = get_partitions(client, args.start_partition)
+    if not partitions:
+        print("No partitions found.")
+        return
+
+    for partition in partitions:
+        try:
+            rows = transaction_hole_finding(client, partition)
+            if rows:
+                print(f"⚠️  Missing transactions in partition {partition}: {len(rows)}")
+                for row in rows:
+                    print(f"    Block: {row[0]}  Missing TX: {row[2]}")
+                # Fix the hole by exporting the missing transactions
+                missing_blocks = {row[0] for row in rows}
+                fix_block_hole(missing_blocks)
+            else:
+                print(f"✅ All transactions found in partition {partition}")
+        except Exception as e:
+            print(f"❌ Exception when fixing transaction hole in partition {partition}: {e}")
+
+if __name__ == "__main__":
+    main()
