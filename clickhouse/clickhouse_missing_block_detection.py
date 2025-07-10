@@ -20,7 +20,6 @@ CLICKHOUSE_USER = 'default'
 CLICKHOUSE_PASSWORD = 'password'
 DATABASE = 'bitcoin'
 
-END_PARTITION = 201601 # e.g. 201501 for January 2015
 
 # === INIT CLIENT ===
 client = get_client(
