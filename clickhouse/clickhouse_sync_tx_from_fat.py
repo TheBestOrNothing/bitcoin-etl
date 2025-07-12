@@ -1,7 +1,7 @@
 import argparse
 import clickhouse_connect
 from clickhouse_connect import get_client
-import time
+from typing import Sequence, List
 
 # === CONFIGURATION ===
 CLICKHOUSE_HOST = 'localhost'
@@ -19,6 +19,35 @@ client = get_client(
     password=CLICKHOUSE_PASSWORD,
     database=DATABASE,
 )
+
+def is_transaction_missing(client, partition):
+    query = f"""
+    WITH flattened AS (
+        SELECT
+            hash AS block_hash,
+            tx_hash,
+            number
+        FROM bitcoin.blocks_fat
+        ARRAY JOIN transactions AS tx_hash
+        WHERE toYYYYMM(timestamp) = {partition}
+    )
+    SELECT
+        flattened.number,
+        flattened.block_hash,
+        flattened.tx_hash
+    FROM flattened
+    LEFT ANTI JOIN (
+        SELECT hash
+        FROM bitcoin.transactions_fat
+        WHERE toYYYYMM(block_timestamp) = {partition}
+    ) AS txs
+    ON flattened.tx_hash = txs.hash
+    """
+    result = client.query(query)
+    if result.result_rows:
+        return True
+    else:
+        return False
 
 def get_partitions(client, start_partition):
     query = f"""
@@ -66,18 +95,35 @@ def is_partition_fully_optimized(client, partition):
         return False
     return True
 
-def optimize_partition_final(client, partition):
-    print(f">>> Checking partition {partition}...")
-    if is_partition_fully_optimized(client, partition):
-        print(f"✓ Partition {partition} in transactions_fat is fully optimized. Skipping.")
-        return
-    print(f"⏳ Optimizing partition {partition} in transactions_fat...")
-    query = f"OPTIMIZE TABLE transactions_fat PARTITION '{partition}' FINAL"
+def insert_transactions_from_fat(partition: int):
+    query = f"""
+    INSERT INTO transactions
+    SELECT
+      hash,
+      size,
+      virtual_size,
+      version,
+      lock_time,
+      block_hash,
+      block_number,
+      block_timestamp,
+      block_timestamp_month,
+      is_coinbase,
+      input_count,
+      output_count,
+      input_value,
+      output_value,
+      fee,
+      inputs,
+      outputs,
+      0 AS revision
+    FROM transactions_fat
+    WHERE toYYYYMM(block_timestamp) = {partition}
+    """
     client.command(query)
-    print(f"✅ Partition {partition} in transactions_fat optimized.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Deduplicate partitions in transactions_fat from a start partition onward")
+    parser = argparse.ArgumentParser(description="Deduplicate partitions in blocks_fat from a start partition onward")
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 
@@ -87,14 +133,20 @@ def main():
         return
 
     for partition in partitions:
-        while True:
-            try:
-                optimize_partition_final(client, partition)
-                break  # Success: exit the while loop and go to next partition
-            except Exception as e:
-                print(f"❌ Failed to optimize partition {partition}: {e}")
-                print("⏳ Sleeping 10 minutes before retrying...")
-                time.sleep(600)
+        try:
+            if is_transaction_missing(client, partition):
+                print(f"❌️  Missing transaction in partition {partition}")
+                return
+            if not is_partition_fully_optimized(client, partition):
+                print(f"❌ Partition {partition} in transaction_fat is not optimized.")
+                return
+
+            insert_transactions_from_fat(partition)
+            print(f"✅ Sync the data from transaction_fat to transaction in partition {partition} ")
+
+        except Exception as e:
+            print(f"❌ Failed to optimize partition {partition}: {e}")
+            return
 
 if __name__ == "__main__":
     main()
