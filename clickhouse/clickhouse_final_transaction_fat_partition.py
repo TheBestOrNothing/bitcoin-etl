@@ -25,7 +25,7 @@ def get_partitions(client, start_partition):
         SELECT DISTINCT partition
         FROM system.parts
         WHERE database = '{DATABASE}'
-          AND table = 'transactions'
+          AND table = 'transactions_fat'
           AND active
           AND partition >= '{start_partition}'
         ORDER BY partition
@@ -38,7 +38,7 @@ def has_single_active_part(client, partition):
         SELECT count(*) AS part_count
         FROM system.parts
         WHERE database = '{DATABASE}'
-          AND table = 'transactions'
+          AND table = 'transactions_fat'
           AND active
           AND partition = '{partition}'
     """
@@ -50,7 +50,7 @@ def has_duplicate_hashes(client, partition):
         SELECT count(*) > 0
         FROM (
             SELECT hash, count(*) AS c
-            FROM transactions
+            FROM transactions_fat
             WHERE toYYYYMM(block_timestamp) = {partition}
             GROUP BY hash
             HAVING c > 1
@@ -60,26 +60,24 @@ def has_duplicate_hashes(client, partition):
     return result.result_rows[0][0] == 1
 
 def is_partition_fully_optimized(client, partition):
-    if has_duplicate_hashes(client, partition):
-        print(f"--- has duplicate rows in partition {partition} ...")
-        return False
     if not has_single_active_part(client, partition):
-        print(f"--- Not single active partition {partition} ...")
+        return False
+    if has_duplicate_hashes(client, partition):
         return False
     return True
 
 def optimize_partition_final(client, partition):
     print(f">>> Checking partition {partition}...")
     if is_partition_fully_optimized(client, partition):
-        print(f"✓✓✓ Partition {partition} in transactions is fully optimized. Skipping.")
+        print(f"✓✓✓ Partition {partition} in transactions_fat is fully optimized. Skipping.")
         return
-    print(f"--- Optimizing partition {partition} in transactions...")
-    query = f"OPTIMIZE TABLE transactions PARTITION '{partition}' FINAL"
+    print(f"--- Optimizing partition {partition} in transactions_fat...")
+    query = f"OPTIMIZE TABLE transactions_fat PARTITION '{partition}' FINAL"
     client.command(query)
-    print(f"✅ Partition {partition} in transactions optimized.")
+    print(f"✅ Partition {partition} in transactions_fat optimized.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Deduplicate partitions in transactions from a start partition onward")
+    parser = argparse.ArgumentParser(description="Deduplicate partitions in transactions_fat from a start partition onward")
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 

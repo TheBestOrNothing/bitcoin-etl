@@ -217,7 +217,7 @@ def populate_inputs_by_outputs(client, partition):
     print(f"-- Populating inputs by outputs for partition {partition}...")
 
 def main():
-    parser = argparse.ArgumentParser(description="Deduplicate partitions in blocks_fat from a start partition onward")
+    parser = argparse.ArgumentParser(description="Deduplicate partitions in blocks from a start partition onward")
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 
@@ -231,7 +231,7 @@ def main():
             if is_transaction_missing(client, partition):
                 print(f"❌️  Missing transaction in partition {partition}")
                 return
-            if not is_partition_fully_optimized(client, partition):
+            if has_duplicate_hashes(client, partition):
                 print(f"❌ Partition {partition} in transactions is not optimized.")
                 return
 

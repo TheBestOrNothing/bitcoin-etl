@@ -39,3 +39,19 @@ print('-' * 70)
 for row in result.result_rows:
     db, table, size = row
     print(f"{db:<20} {table:<30} {size:>15}")
+
+query2 = """
+SELECT 
+    database, 
+    formatReadableSize(SUM(bytes)) AS total_size 
+FROM system.parts 
+WHERE active 
+GROUP BY database 
+ORDER BY total_size DESC
+"""
+
+result2 = client.query(query2)
+print('-' * 70)
+for row in result2.result_rows:
+    db, size = row
+    print(f"{db:<20} {'Total Size':<30} {size:>15}") 
