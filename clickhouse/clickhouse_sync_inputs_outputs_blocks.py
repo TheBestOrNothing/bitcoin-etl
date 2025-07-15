@@ -99,7 +99,7 @@ def is_missing_tx_in_fat(client, block_number, partition):
         FROM bitcoin.blocks_fat
         ARRAY JOIN transactions AS tx_hash
         WHERE toYYYYMM(block_timestamp) = {partition}
-            AND number = {block_number}
+        AND number = {block_number}
     )
     SELECT
         flattened.number,
@@ -110,7 +110,7 @@ def is_missing_tx_in_fat(client, block_number, partition):
         SELECT hash
         FROM bitcoin.transactions_fat
         WHERE toYYYYMM(block_timestamp) = {partition}
-            AND number = {block_number}
+        AND number = {block_number}
     ) AS txs
     ON flattened.tx_hash = txs.hash
     """
@@ -139,10 +139,10 @@ def copy_block_from_fat(client, block_number, partition):
     SELECT *
     FROM bitcoin.blocks_fat
     WHERE number = {block_number}
-      AND toYYYYMM(block_timestamp) = {partition}
+    AND toYYYYMM(block_timestamp) = {partition}
     """
     client.command(query)
-    print(f"Copied block {block_number} from fat to main table for partition {partition}.")
+    print(f"Copied block {block_number} from fat in partition {partition}.")
 
 def copy_transactions_from_fat(client, block_number, partition):
     """Copy transactions from the fat table to the main table."""
@@ -151,10 +151,10 @@ def copy_transactions_from_fat(client, block_number, partition):
     SELECT *
     FROM bitcoin.transactions_fat
     WHERE block_number = {block_number}
-      AND toYYYYMM(block_timestamp) = {partition}
+    AND toYYYYMM(block_timestamp) = {partition}
     """
     client.command(query)
-    print(f"Copied transactions for block {block_number} from fat to main table for partition {partition}.")
+    print(f"Copied transactions for block {block_number} from fat in partition {partition}.")
 
 def populate_inputs(client, block_number, partition):
     # Insert into inputs
@@ -182,7 +182,7 @@ def populate_inputs(client, block_number, partition):
     AND t.block_number = {block_number}
     """
     client.command(insert_inputs_sql)
-    print(f"-- Populating inputs for partition {partition}...")
+    print(f"-- Populating inputs for block {block_number}...")
 
 
 def populate_outputs(client, block_number, partition):
@@ -215,7 +215,7 @@ def populate_outputs(client, block_number, partition):
     AND t.block_number = {block_number}
     """
     client.command(insert_outputs_sql)
-    print(f"-- Populating outputs for partition {partition}...")
+    print(f"-- Populating outputs for block {block_number}...")
 
 def populate_outputs_by_inputs(client, block_number, partition):
     # Finalize spent info update
@@ -248,7 +248,7 @@ def populate_outputs_by_inputs(client, block_number, partition):
     AND i.block_number = {block_number}
     """
     client.command(insert_spent_sql)
-    print(f"-- Populating outputs by inputs for partition {partition}...")
+    print(f"-- Populating outputs by inputs for block {block_number}...")
 
 
 def populate_inputs_by_outputs(client, block_number, partition):
@@ -279,7 +279,7 @@ def populate_inputs_by_outputs(client, block_number, partition):
     AND i.block_number = {block_number}
     """
     client.command(insert_spent_sql)
-    print(f"-- Populating inputs by outputs for partition {partition}...")
+    print(f"-- Populating inputs by outputs for block {block_number}...")
 
 def get_partitions(client, start_partition):
     query = f"""
