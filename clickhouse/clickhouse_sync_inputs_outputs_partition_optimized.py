@@ -196,6 +196,7 @@ def populate_inputs_outputs(client, partition):
     INNER JOIN outputs AS o
     ON i.spending_transaction_hash = o.transaction_hash
     AND i.spending_output_index = o.output_index
+    AND o.revision = 0
     WHERE toYYYYMM(i.block_timestamp) = {partition}
     """
     client.command(insert_inputs_outputs_sql)
@@ -224,7 +225,7 @@ def populate_outputs_by_inputs(client, partition):
         o_value AS value,
         o_is_coinbase AS is_coinbase,
         revision
-    FROM inputs_outputs;
+    FROM inputs_outputs
     WHERE toYYYYMM(i_block_timestamp) = {partition}
     """
     client.command(insert_spent_sql)
@@ -251,7 +252,7 @@ def populate_inputs_by_outputs(client, partition):
         i_addresses AS addresses,
         i_value AS value,
         revision
-    FROM inputs_outputs;
+    FROM inputs_outputs
     WHERE toYYYYMM(i_block_timestamp) = {partition}
     """
     client.command(insert_spent_sql)
@@ -281,6 +282,7 @@ def main():
             populate_inputs_outputs(client, partition)
             populate_outputs_by_inputs(client, partition)
             populate_inputs_by_outputs(client, partition)
+            print(f"✅ Partition {partition} Done.....................")
 
         except Exception as e:
             print(f"Sync inputs and outputs error when processing partition {partition}: {e}")
