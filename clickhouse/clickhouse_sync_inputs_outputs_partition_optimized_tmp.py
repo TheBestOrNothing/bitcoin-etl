@@ -2,7 +2,6 @@ import argparse
 import clickhouse_connect
 from clickhouse_connect import get_client
 from typing import Sequence, List
-import time
 
 # === CONFIGURATION ===
 CLICKHOUSE_HOST = 'localhost'
@@ -259,11 +258,66 @@ def populate_inputs_by_outputs(client, partition):
     client.command(insert_spent_sql)
     print(f"-- Populating inputs by outputs for partition {partition}...")
 
+def check_input_output_consistency(client, partition):
+    """
+    Checks whether the counts of `inputs`, `inputs_outputs`, and `outputs` tables
+    (up to and including the given partition) are equal.
+    
+    :param partition: Integer partition in YYYYMM format (e.g., 201910)
+    :param host: ClickHouse server hostname
+    :param port: ClickHouse server port
+    :param username: ClickHouse username
+    :param password: ClickHouse password
+    :return: Tuple (count_inputs, count_inputs_outputs, count_outputs)
+    """
+
+    # Format partition value as integer literal (no quotes)
+    query_inputs = f"""
+        SELECT count()
+        FROM inputs FINAL
+        WHERE toYYYYMM(block_timestamp) <= {partition}
+    """
+
+    query_inputs_outputs = f"""
+        SELECT count()
+        FROM inputs_outputs
+        WHERE toYYYYMM(i_block_timestamp) <= {partition}
+    """
+
+    query_outputs = f"""
+        SELECT count()
+        FROM outputs FINAL
+        WHERE toYYYYMM(block_timestamp) <= {partition} AND revision = 1
+    """
+
+    # Execute queries
+    count_inputs = client.query(query_inputs).result_rows[0][0]
+    count_inputs_outputs = client.query(query_inputs_outputs).result_rows[0][0]
+    count_outputs = client.query(query_outputs).result_rows[0][0]
+
+    # Report
+    print(f"Partition: {partition}")
+    print("inputs count:         ", count_inputs)
+    print("inputs_outputs count: ", count_inputs_outputs)
+    print("outputs count:        ", count_outputs)
+
+    if count_inputs == count_inputs_outputs == count_outputs:
+        print("✅ All counts match before partition {partition}.")
+        return True
+    else:
+        print("❌ Mismatch detected in partition {partition}.")
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description="Deduplicate partitions in blocks from a start partition onward")
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 
+    populate_inputs_outputs(client, args.start_partition)
+    populate_inputs_by_outputs(client, args.start_partition)
+    populate_outputs_by_inputs(client, args.start_partition)
+    print(f"Populated inputs_outputs for partition {args.start_partition}...")
+    return
     partitions = get_partitions(client, args.start_partition)
     if not partitions:
         print("No partitions found.")
@@ -271,22 +325,9 @@ def main():
 
     for partition in partitions:
         try:
-            if is_transaction_missing(client, partition):
-                print(f"❌️  Missing transaction in partition {partition}")
-                return
-            if has_duplicate_hashes(client, partition):
-                print(f"❌ Partition {partition} in transactions is not optimized.")
-                return
-
-            start_time = time.perf_counter()
-            populate_inputs(client, partition)
-            populate_outputs(client, partition)
-            populate_inputs_outputs(client, partition)
             populate_inputs_by_outputs(client, partition)
             populate_outputs_by_inputs(client, partition)
-            end_time = time.perf_counter()
-            hours = (end_time - start_time)/3600
-            print(f"✅ Partition {partition} take {hours:.4f} h.....................")
+            print(f"✅ Partition {partition} Done.....................")
 
         except Exception as e:
             print(f"Sync inputs and outputs error when processing partition {partition}: {e}")

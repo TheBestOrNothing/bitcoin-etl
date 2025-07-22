@@ -92,8 +92,8 @@ def main():
 
             except Exception as e:
                 print(e)
-                print(f"⏳ Sleeping 10 minutes before retrying in {partition}...")
-                time.sleep(600)
+                print(f"⏳ Sleeping 5 minutes before retrying in {partition}...")
+                time.sleep(300)
 
 if __name__ == "__main__":
     main()

@@ -203,6 +203,116 @@ def populate_inputs_outputs(client, partition):
     client.command(insert_inputs_outputs_sql)
     print(f"-- Populating inputs_outputs for partition {partition}...")
 
+
+def populate_inputs_outputs_part1(client, partition, block_number):
+    # insert inputs_outputs
+    insert_inputs_outputs_sql = f"""
+    INSERT INTO inputs_outputs
+    SELECT
+        -- Inputs fields (after join)
+        i.transaction_hash AS i_transaction_hash,
+        i.input_index AS i_input_index,
+        i.block_hash AS i_block_hash,
+        i.block_number AS i_block_number,
+        i.block_timestamp AS i_block_timestamp,
+        i.spending_transaction_hash AS i_spending_transaction_hash,
+        i.spending_output_index AS i_spending_output_index,
+        i.script_asm AS i_script_asm,
+        i.script_hex AS i_script_hex,
+        i.sequence AS i_sequence,
+        o.required_signatures AS i_required_signatures,
+        o.type AS i_type,
+        o.addresses AS i_addresses,
+        o.value AS i_value,
+        -- Outputs fields (after join)
+        o.transaction_hash AS o_transaction_hash,
+        o.output_index AS o_output_index,
+        o.block_hash AS o_block_hash,
+        o.block_number AS o_block_number,
+        o.block_timestamp AS o_block_timestamp,
+        i.transaction_hash AS o_spent_transaction_hash,  -- updated values
+        i.input_index AS o_spent_input_index,
+        i.block_hash AS o_spent_block_hash,
+        i.block_number AS o_spent_block_number,
+        i.block_timestamp AS o_spent_block_timestamp,
+        o.script_asm AS o_script_asm,
+        o.script_hex AS o_script_hex,
+        o.required_signatures AS o_required_signatures,
+        o.type AS o_type,
+        o.addresses AS o_addresses,
+        o.value AS o_value,
+        o.is_coinbase AS o_is_coinbase,
+        1 AS revision
+    FROM inputs AS i
+    INNER JOIN outputs AS o
+    ON i.spending_transaction_hash = o.transaction_hash
+    AND i.spending_output_index = o.output_index
+    AND o.revision = 0
+    WHERE toYYYYMM(i.block_timestamp) = {partition}
+    AND o.block_number <= {block_number}
+    """
+    client.command(insert_inputs_outputs_sql)
+    print(f"-- Populating inputs_outputs for partition {partition} part1...")
+
+def populate_inputs_outputs_part2(client, partition, block_number):
+    # insert inputs_outputs
+    insert_inputs_outputs_sql = f"""
+    INSERT INTO inputs_outputs
+    SELECT
+        -- Inputs fields (after join)
+        i.transaction_hash AS i_transaction_hash,
+        i.input_index AS i_input_index,
+        i.block_hash AS i_block_hash,
+        i.block_number AS i_block_number,
+        i.block_timestamp AS i_block_timestamp,
+        i.spending_transaction_hash AS i_spending_transaction_hash,
+        i.spending_output_index AS i_spending_output_index,
+        i.script_asm AS i_script_asm,
+        i.script_hex AS i_script_hex,
+        i.sequence AS i_sequence,
+        o.required_signatures AS i_required_signatures,
+        o.type AS i_type,
+        o.addresses AS i_addresses,
+        o.value AS i_value,
+        -- Outputs fields (after join)
+        o.transaction_hash AS o_transaction_hash,
+        o.output_index AS o_output_index,
+        o.block_hash AS o_block_hash,
+        o.block_number AS o_block_number,
+        o.block_timestamp AS o_block_timestamp,
+        i.transaction_hash AS o_spent_transaction_hash,  -- updated values
+        i.input_index AS o_spent_input_index,
+        i.block_hash AS o_spent_block_hash,
+        i.block_number AS o_spent_block_number,
+        i.block_timestamp AS o_spent_block_timestamp,
+        o.script_asm AS o_script_asm,
+        o.script_hex AS o_script_hex,
+        o.required_signatures AS o_required_signatures,
+        o.type AS o_type,
+        o.addresses AS o_addresses,
+        o.value AS o_value,
+        o.is_coinbase AS o_is_coinbase,
+        1 AS revision
+    FROM inputs AS i
+    INNER JOIN outputs AS o
+    ON i.spending_transaction_hash = o.transaction_hash
+    AND i.spending_output_index = o.output_index
+    AND o.revision = 0
+    WHERE toYYYYMM(i.block_timestamp) = {partition}
+    AND o.block_number > {block_number}
+    """
+    client.command(insert_inputs_outputs_sql)
+    print(f"-- Populating inputs_outputs for partition {partition} part2...")
+
+def avg_block_number(client, partition):
+    query = f"""
+    SELECT toInt64(AVG(block_number)) AS avg_block_number
+    FROM  outputs
+    WHERE toYYYYMM(block_timestamp) = {partition}
+    """
+    return client.query(query).result_rows[0][0]
+
+
 def populate_outputs_by_inputs(client, partition):
     # Finalize spent info update
     insert_spent_sql = f"""
@@ -264,6 +374,18 @@ def main():
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 
+    partition = args.start_partition
+    block_number = avg_block_number(client, partition)
+    print(f"-- Starting to populate inputs_outputs for partition {partition} with avg block number {block_number}...")
+    populate_inputs_outputs_part1(client, partition, block_number)
+    populate_inputs_outputs_part2(client, partition, block_number)
+
+    populate_inputs_by_outputs(client, partition)
+    populate_outputs_by_inputs(client, partition)
+    return
+
+
+
     partitions = get_partitions(client, args.start_partition)
     if not partitions:
         print("No partitions found.")
@@ -281,9 +403,16 @@ def main():
             start_time = time.perf_counter()
             populate_inputs(client, partition)
             populate_outputs(client, partition)
-            populate_inputs_outputs(client, partition)
+
+            #populate_inputs_outputs(client, partition)
+            block_number = avg_block_number(client, partition)
+            print(f"-- Starting to populate inputs_outputs for partition {partition} with avg block number {block_number}...")
+            populate_inputs_outputs_part1(client, partition, block_number)
+            populate_inputs_outputs_part2(client, partition, block_number)
+
             populate_inputs_by_outputs(client, partition)
             populate_outputs_by_inputs(client, partition)
+
             end_time = time.perf_counter()
             hours = (end_time - start_time)/3600
             print(f"✅ Partition {partition} take {hours:.4f} h.....................")
