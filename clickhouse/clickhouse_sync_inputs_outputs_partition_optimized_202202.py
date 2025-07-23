@@ -34,6 +34,20 @@ def get_partitions(client, start_partition):
     result = client.query(query)
     return [row[0] for row in result.result_rows]
 
+def get_partitions_before(client, end_partition):
+    query = f"""
+        SELECT DISTINCT partition
+        FROM system.parts
+        WHERE database = '{DATABASE}'
+          AND table = 'transactions'
+          AND active
+          AND partition <= '{end_partition}'
+        ORDER BY partition
+    """
+    result = client.query(query)
+    return [row[0] for row in result.result_rows]
+
+
 def is_transaction_missing(client, partition):
     query = f"""
     WITH flattened AS (
@@ -254,7 +268,7 @@ def populate_inputs_outputs_part1(client, partition, block_number):
     client.command(insert_inputs_outputs_sql)
     print(f"-- Populating inputs_outputs for partition {partition} part1...")
 
-def populate_inputs_outputs_part2(client, partition, block_number):
+def populate_inputs_outputs_partly(client, input_partition, output_partition):
     # insert inputs_outputs
     insert_inputs_outputs_sql = f"""
     INSERT INTO inputs_outputs
@@ -298,11 +312,11 @@ def populate_inputs_outputs_part2(client, partition, block_number):
     ON i.spending_transaction_hash = o.transaction_hash
     AND i.spending_output_index = o.output_index
     AND o.revision = 0
-    WHERE toYYYYMM(i.block_timestamp) = {partition}
-    AND o.block_number > {block_number}
+    AND toYYYYMM(o.block_timestamp) = {output_partition}
+    WHERE toYYYYMM(i.block_timestamp) = {input_partition}
     """
     client.command(insert_inputs_outputs_sql)
-    print(f"-- Populating inputs_outputs for partition {partition} part2...")
+    print(f"-- Populating inputs_outputs for input_partition {input_partition} output_partition {output_partition} ...")
 
 def avg_block_number(client, partition):
     query = f"""
@@ -374,14 +388,22 @@ def main():
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 
-    partition = args.start_partition
-    block_number = avg_block_number(client, partition)
-    print(f"-- Starting to populate inputs_outputs for partition {partition} with avg block number {block_number}...")
-    populate_inputs_outputs_part1(client, partition, block_number)
-    populate_inputs_outputs_part2(client, partition, block_number)
+    outputs_partitions = get_partitions_before(client, args.start_partition)
+    print("outputs_partitions list", outputs_partitions)
+    if not outputs_partitions:
+        print("No partitions found.")
+        return
 
-    populate_inputs_by_outputs(client, partition)
-    populate_outputs_by_inputs(client, partition)
+    input_partition = args.start_partition
+    print("inputs_partition ", input_partition)
+    for output_partition in outputs_partitions:
+        try:
+            print("outputs_partition", output_partition)
+            populate_inputs_outputs_partly(client, input_partition, output_partition)
+        except Exception as e:
+            print(f"Error populating inputs_outputs for partition {input_partition} and output_partition {output_partition}: {e}")
+            return
+
     return
 
 
