@@ -3,6 +3,7 @@ import clickhouse_connect
 from clickhouse_connect import get_client
 from typing import Sequence, List
 import time
+from datetime import datetime
 
 # === CONFIGURATION ===
 CLICKHOUSE_HOST = 'localhost'
@@ -350,6 +351,9 @@ def main():
 
     for partition in partitions:
         try:
+            start_date = datetime.now()
+            print(f"Processing partition {partition} at {start_date.strftime('%Y-%m-%d %H:%M:%S')}...")
+
             if is_transaction_missing(client, partition):
                 print(f"❌️  Missing transaction in partition {partition}")
                 return
@@ -367,10 +371,14 @@ def main():
 
             end_time = time.perf_counter()
             hours = (end_time - start_time)/3600
-            print(f"✅ Partition {partition} take {hours:.4f} h.....................")
+            end_date = datetime.now()
+            print(f"✅ Finished processing partition {partition} at {end_date.strftime('%Y-%m-%d %H:%M:%S')} and take {hours:.4f} h..")
+            #print(f"Partition {partition} take {hours:.4f} h.....................")
+            time.sleep(300)
 
         except Exception as e:
             print(f"Sync inputs and outputs error when processing partition {partition}: {e}")
+            return
 
 if __name__ == "__main__":
     main()

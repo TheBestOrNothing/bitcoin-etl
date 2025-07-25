@@ -76,6 +76,7 @@ For the latest version, check out the repo and call
       - [export_all](#exportall)
       - [stream](#stream)
       - [stream_block](#stream_block)
+      - [stream_input_output](#stream_input_output)
     - [Running Tests](#running-tests)
     - [Running Tox Tests](#running-tox-tests)
     - [Public Datasets in BigQuery](#public-datasets-in-bigquery)
@@ -314,6 +315,15 @@ You can tune `--export-batch-size`, `--max-workers` for performance.
 ```bash
 python3 bitcoinetl.py stream_block -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 10 -B 50 --enrich false --start-block 0
 ```
+
+#### stream_block
+
+```bash
+python3 bitcoinetl.py stream_input_output -p http://bitcoin:passw0rd@localhost:8332 --start-block 500000 --enrich-tx false --enrich-ios false -b 1 -B 1
+
+python3 bitcoinetl.py stream_input_output -p http://bitcoin:passw0rd@localhost:8332 --start-block 500000 --enrich-tx true --enrich-ios true -b 1 -B 1
+```
+
 #### stream
 
 ```bash

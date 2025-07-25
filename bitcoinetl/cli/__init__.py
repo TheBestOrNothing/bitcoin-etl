@@ -28,6 +28,7 @@ from bitcoinetl.cli.filter_items import filter_items
 from bitcoinetl.cli.get_block_range_for_date import get_block_range_for_date
 from bitcoinetl.cli.stream import stream
 from bitcoinetl.cli.stream_block import stream_block
+from bitcoinetl.cli.stream_input_output import stream_input_output
 
 
 @click.group()
@@ -45,6 +46,7 @@ cli.add_command(export_all, "export_all")
 # streaming
 cli.add_command(stream, "stream")
 cli.add_command(stream_block, "stream_block")
+cli.add_command(stream_input_output, "stream_input_output")
 
 # utils
 cli.add_command(filter_items, "filter_items")
