@@ -126,7 +126,7 @@ class EnrichInputOutputJob(BaseJob):
                 io.o_block_hash = spending_transaction.block_hash
                 io.o_block_number = spending_transaction.block_number
                 io.o_block_timestamp = spending_transaction.block_timestamp
-                io.o_spent_transaction_hash = input.spent_transaction_hash
+                io.o_spent_transaction_hash = transaction.hash
                 io.o_spent_input_index = input.index
                 io.o_spent_block_hash = transaction.block_hash
                 io.o_spent_block_number = transaction.block_number
@@ -153,15 +153,8 @@ class EnrichInputOutputJob(BaseJob):
 
                 # Add the input-output object to the list
                 ios.append(io)
-                print('Input-Output: ', io.i_transaction_hash, io.i_input_index, io.i_block_hash,
-                      io.i_block_number, io.i_block_timestamp, io.i_spending_transaction_hash,
-                      io.i_spending_output_index, io.i_script_asm, io.i_script_hex, io.i_sequence,
-                      io.o_transaction_hash, io.o_output_index, io.o_block_hash, io.o_block_number,
-                      io.o_block_timestamp, io.o_spent_transaction_hash, io.o_spent_input_index,
-                      io.o_spent_block_hash, io.o_spent_block_number, io.o_spent_block_timestamp,
-                      io.o_script_asm, io.o_script_hex, io.o_required_signatures, io.o_type,
-                      io.o_addresses, io.o_value, io.i_required_signatures, io.i_type,
-                      io.i_addresses, io.i_value)
+                print()
+                print('Input-Output: ', self.ios_mapper.inputoutput_to_dict(io))
                 
             for io in ios:
                 self.item_exporter.export_item(self.ios_mapper.inputoutput_to_dict(io))
