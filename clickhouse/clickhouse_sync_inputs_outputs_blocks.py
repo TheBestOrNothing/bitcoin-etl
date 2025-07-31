@@ -217,7 +217,7 @@ def populate_outputs(client, block_number, partition):
     client.command(insert_outputs_sql)
     print(f"-- Populating outputs for block {block_number}...")
 
-def populate_outputs_by_inputs(client, block_number, partition):
+def populate_outputs_by_ios(client, block_number, partition):
     # Finalize spent info update
     insert_spent_sql = f"""
     INSERT INTO outputs
@@ -251,7 +251,7 @@ def populate_outputs_by_inputs(client, block_number, partition):
     print(f"-- Populating outputs by inputs for block {block_number}...")
 
 
-def populate_inputs_by_outputs(client, block_number, partition):
+def populate_inputs_by_ios(client, block_number, partition):
     # Finalize spent info update
     insert_spent_sql = f"""
     INSERT INTO inputs
@@ -347,14 +347,207 @@ def get_block_partition(client, block_number):
     dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
     return int(dt.strftime("%Y%m"))
 
+def is_inputs_outputs_missing2(client, block_number, partition):
+    query_inputs_outputs = f"""
+        SELECT count(*)
+        FROM inputs_outputs
+        WHERE toYYYYMM(i_block_timestamp) = {partition}
+        AND i_block_number = {block_number}
+    """
+
+    query_inputs = f"""
+        SELECT count(*)
+        FROM inputs
+        WHERE toYYYYMM(block_timestamp) = {partition}
+        AND block_number = {block_number}
+    """
+
+    inputs_outputs_result = client.query(query_inputs_outputs)
+    inputs_result = client.query(query_inputs)
+    return inputs_outputs_result.result_rows[0][0] == inputs_result.result_rows[0][0]
+
+def is_inputs_outputs_missing(client, block_number, partition):
+    query = f"""
+      SELECT * from inputs
+      LEFT ANTI JOIN inputs_outputs AS ios
+        ON inputs.transaction_hash = ios.i_transaction_hash
+        AND inputs.input_index = ios.i_input_index
+        AND toYYYYMM(ios.i_block_timestamp) = {partition}
+        AND ios.i_block_number = {block_number}
+      WHERE toYYYYMM(inputs.block_timestamp) = {partition}
+        AND inputs.block_number = {block_number}
+        limit 1
+    """
+
+    result = client.query(query)
+    if result.result_rows:
+        return True
+    else:
+        return False
+
+
+
+def inputs_outputs_missing_patching_partly(client, block_number, input_partition, output_partition):
+
+    # left anti join inputs and inputs_outputs to find missing ones in inputs_outputs
+    insert_inputs_outputs_sql = f"""
+    INSERT INTO inputs_outputs
+    SELECT
+        -- Inputs fields (after join)
+        i.transaction_hash AS i_transaction_hash,
+        i.input_index AS i_input_index,
+        i.block_hash AS i_block_hash,
+        i.block_number AS i_block_number,
+        i.block_timestamp AS i_block_timestamp,
+        i.spending_transaction_hash AS i_spending_transaction_hash,
+        i.spending_output_index AS i_spending_output_index,
+        i.script_asm AS i_script_asm,
+        i.script_hex AS i_script_hex,
+        i.sequence AS i_sequence,
+        o.required_signatures AS i_required_signatures,
+        o.type AS i_type,
+        o.addresses AS i_addresses,
+        o.value AS i_value,
+        -- Outputs fields (after join)
+        o.transaction_hash AS o_transaction_hash,
+        o.output_index AS o_output_index,
+        o.block_hash AS o_block_hash,
+        o.block_number AS o_block_number,
+        o.block_timestamp AS o_block_timestamp,
+        i.transaction_hash AS o_spent_transaction_hash,  -- updated values
+        i.input_index AS o_spent_input_index,
+        i.block_hash AS o_spent_block_hash,
+        i.block_number AS o_spent_block_number,
+        i.block_timestamp AS o_spent_block_timestamp,
+        o.script_asm AS o_script_asm,
+        o.script_hex AS o_script_hex,
+        o.required_signatures AS o_required_signatures,
+        o.type AS o_type,
+        o.addresses AS o_addresses,
+        o.value AS o_value,
+        o.is_coinbase AS o_is_coinbase,
+        1 AS revision
+    FROM 
+    (
+      SELECT * from inputs
+      LEFT ANTI JOIN inputs_outputs AS ios
+        ON inputs.transaction_hash = ios.i_transaction_hash
+        AND inputs.input_index = ios.i_input_index
+        AND toYYYYMM(ios.i_block_timestamp) = {input_partition}
+        AND ios.i_block_number = {block_number}
+      WHERE toYYYYMM(inputs.block_timestamp) = {input_partition}
+        AND inputs.block_number = {block_number}
+    ) AS i
+    INNER JOIN outputs AS o
+    ON i.spending_transaction_hash = o.transaction_hash
+    AND i.spending_output_index = o.output_index
+    AND o.revision = 0
+    AND toYYYYMM(o.block_timestamp) = {output_partition}
+    """ 
+
+    client.command(insert_inputs_outputs_sql)
+    return
+
+def get_partitions_before(client, end_partition):
+    query = f"""
+        SELECT DISTINCT partition
+        FROM system.parts
+        WHERE database = '{DATABASE}'
+          AND table = 'transactions'
+          AND active
+          AND partition <= '{end_partition}'
+        ORDER BY partition DESC
+    """
+    result = client.query(query)
+    return [row[0] for row in result.result_rows]
+
+def compare_inputs_counts(client, block_number, input_partition, output_partition) -> bool:
+    """
+    Compare the counts of inputs_outputs and inputs for a given partition.
+    
+    Args:
+        client: ClickHouse client instance.
+        partition (int): Partition in YYYYMM format.
+
+    Returns:
+        bool: True if counts are equal, False otherwise.
+    """
+    # Query counts
+    query_inputs_outputs = f"""
+        SELECT count()
+        FROM inputs_outputs
+        WHERE toYYYYMM(i_block_timestamp) = {input_partition}
+        AND i_block_number = {block_number}
+    """
+    query_inputs = f"""
+        SELECT count()
+        FROM inputs
+        WHERE toYYYYMM(block_timestamp) = {input_partition}
+        AND block_number = {block_number}
+    """
+
+    # Execute queries
+    count_inputs_outputs = client.query(query_inputs_outputs).result_rows[0][0]
+    count_inputs = client.query(query_inputs).result_rows[0][0]
+    percentage = (count_inputs_outputs / count_inputs) * 100
+    print(f"({output_partition} {percentage:.2f}%)", end=" ", flush=True)
+
+    # Compare and return
+    return count_inputs_outputs == count_inputs
+
+
+def inputs_outputs_patching(client, block_number, partition):
+    outputs_partitions = get_partitions_before(client, partition)
+    if not outputs_partitions:
+        print("No partitions found.")
+        return
+
+    input_partition = partition
+    for output_partition in outputs_partitions:
+        try:
+            inputs_outputs_missing_patching_partly(client, block_number, input_partition, output_partition)
+
+            if compare_inputs_counts(client, partition, output_partition):
+                print()
+                break
+
+        except Exception as e:
+            print(f"Error populating inputs_outputs for partition {input_partition} and output_partition {output_partition}: {e}")
+            return
+
+    print(f"-- Patching inputs_outputs for partition {partition}...")
+
+
+def latest_status(client):
+
+    block = max_number_in_blocks(client)
+    partition = get_block_partition(client, block)
+    print(f"Verifying latest Block: {block}, Partition: {partition}")
+
+    while True:
+        if is_inputs_outputs_missing(client, block, partition):
+            print(f"⚠️  Inputs and Outputs are missing for Block: {block}, Partition: {partition}. ")
+        else:
+            print(f"✅ Inputs and Outputs are synced for Block: {block}, Partition: {partition}.")
+            return block
+        
+        block  -= 1
+        if block < 0:
+            print("Reached the beginning of the blockchain. No more blocks to check.")
+            return -1 # Indicating no valid block found
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deduplicate partitions in blocks from a start partition onward")
     parser.add_argument("--start-partition", default=DEFAULT_START_PARTITION, help="Start partition (YYYYMM)")
     args = parser.parse_args()
 
+    block = latest_status(client) + 1
+
     while True:
         try:
-            block = max_number_in_blocks(client) + 1
+            # block = max_number_in_blocks(client) + 1
 
             if is_missing_block_in_fat(client, block):
                 print(f"⚠️  Missing block {block} in fat table. Patching...")
@@ -382,19 +575,24 @@ def main():
                 finalize_transactions_fat(client, partition)
                 continue
 
+            print(f"--- Start to sync data for block {block} in partition {partition}.")
             copy_block_from_fat(client, block, partition)
             copy_transactions_from_fat(client, block, partition)
             populate_inputs(client, block, partition)
             populate_outputs(client, block, partition)
-            populate_outputs_by_inputs(client, block, partition)
-            populate_inputs_by_outputs(client, block, partition)
+
+            if is_inputs_outputs_missing(client, block, partition):
+                inputs_outputs_patching(client, block, partition)
+
+            populate_outputs_by_ios(client, block, partition)
+            populate_inputs_by_ios(client, block, partition)
             print(f"✅ Inputs and Outputs data sync done for block {block} in partition {partition}.")
+
+            block += 1
 
         except Exception as e:
             print(e)
-            print("⏳ Sleeping for 3 minutes before retrying...")
-            time.sleep(180)
-            continue
+            return
 
 
 if __name__ == "__main__":
