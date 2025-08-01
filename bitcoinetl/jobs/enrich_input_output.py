@@ -86,6 +86,7 @@ class EnrichInputOutputJob(BaseJob):
     def _enrich_inputs_outputs(self, transactions):
         transactions = [self.transaction_mapper.dict_to_transaction(transaction) for transaction in transactions]
         # Create a new BtcTransactionInputOutput object for each transaction
+        # print('Number of transactions: ', len(transactions))  # Debugging output
 
         for transaction in transactions:
             # inputs_outputs is short for ios
@@ -156,8 +157,9 @@ class EnrichInputOutputJob(BaseJob):
                 #print()
                 #print('Input-Output: ', self.ios_mapper.inputoutput_to_dict(io))
 
-            if len(ios) != sum(len(tx.inputs) for tx in transactions):
-                raise ValueError('The number of ios is wrong ' + str(ios))
+            #if len(ios) != sum(len(tx.inputs) for tx in transactions):
+            if len(ios) != len(transaction.inputs):
+                raise ValueError('The number of ios is wrong ' + str(len(ios)))
                 
             for io in ios:
                 self.item_exporter.export_item(self.ios_mapper.inputoutput_to_dict(io))
