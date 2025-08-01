@@ -35,6 +35,9 @@ class BtcItemIdCalculator:
         if item_type in ('block', 'transaction') and item.get('hash') is not None:
             return concat(item_type, item.get('hash'))
 
+        if item_type in ('input_output') and item.get('i_transaction_hash') is not None and item.get('i_input_index') is not None:
+            return concat(item_type, item.get('i_transaction_hash'), item.get('i_input_index'))
+
         logging.warning('item_id for item {} is None'.format(json.dumps(item)))
 
         return None

@@ -153,8 +153,11 @@ class EnrichInputOutputJob(BaseJob):
 
                 # Add the input-output object to the list
                 ios.append(io)
-                print()
-                print('Input-Output: ', self.ios_mapper.inputoutput_to_dict(io))
+                #print()
+                #print('Input-Output: ', self.ios_mapper.inputoutput_to_dict(io))
+
+            if len(ios) != sum(len(tx.inputs) for tx in transactions):
+                raise ValueError('The number of ios is wrong ' + str(ios))
                 
             for io in ios:
                 self.item_exporter.export_item(self.ios_mapper.inputoutput_to_dict(io))

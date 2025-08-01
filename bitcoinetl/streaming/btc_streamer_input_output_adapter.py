@@ -31,6 +31,7 @@ from bitcoinetl.streaming.btc_item_id_calculator import BtcItemIdCalculator
 from blockchainetl.jobs.exporters.console_item_exporter import ConsoleItemExporter
 from blockchainetl.jobs.exporters.in_memory_item_exporter import InMemoryItemExporter
 from bitcoinetl.jobs.enrich_input_output import EnrichInputOutputJob
+from bitcoinetl.mappers.transaction_mapper import BtcTransactionMapper
 
 
 class BtcStreamerInputOutputAdapter:
@@ -112,8 +113,15 @@ class BtcStreamerInputOutputAdapter:
             )
             enrich_ios_job.run()
             ios = enriched_ios_item_exporter.get_items('input_output')
-            if len(ios) != sum(len(tx.inputs) for tx in transactions):
-                raise ValueError('The number of ios is wrong ' + str(ios))
+
+            #btc_transaction_mapper = BtcTransactionMapper()
+            #transactions_obj = [btc_transaction_mapper.dict_to_transaction(transaction) for transaction in transactions]
+
+            #print('Enriched Inputs and Outputs: ', len(ios))
+            #print(sum(len(tx.inputs) for tx in transactions_obj))
+
+            #if len(ios) != sum(len(tx.inputs) for tx in transactions_obj):
+            #    raise ValueError('The number of ios is wrong ' + str(ios))
 
         logging.info('Exporting with ' + type(self.item_exporter).__name__)
 

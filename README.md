@@ -316,12 +316,14 @@ You can tune `--export-batch-size`, `--max-workers` for performance.
 python3 bitcoinetl.py stream_block -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --period-seconds 0 -b 10 -B 50 --enrich false --start-block 0
 ```
 
-#### stream_block
+#### stream_input_output
 
 ```bash
 python3 bitcoinetl.py stream_input_output -p http://bitcoin:passw0rd@localhost:8332 --start-block 500000 --enrich-tx false --enrich-ios false -b 1 -B 1
+```
 
-python3 bitcoinetl.py stream_input_output -p http://bitcoin:passw0rd@localhost:8332 --start-block 500000 --enrich-tx true --enrich-ios true -b 1 -B 1
+```bash
+python3 bitcoinetl.py stream_input_output -p http://bitcoin:passw0rd@localhost:8332 --output kafka/localhost:9092 --start-block 500000 --enrich-tx false --enrich-ios true -b 1 -B 1
 ```
 
 #### stream
