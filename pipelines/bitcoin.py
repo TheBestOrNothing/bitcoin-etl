@@ -37,7 +37,7 @@ class Pipeline:
         self.vn = self.DeepSeekVanna(config={"api_key": self.valves.DEEPSEEK_API_KEY, "model": "deepseek-chat"})
         # self.vn.connect_to_postgres(host='mypostgres.cql0keme6wne.us-east-1.rds.amazonaws.com', dbname='northwind', user='postgresAdmin', password='Zhe2p0stgres', port='5432')
         # self.vn.connect_to_postgres(host='host.docker.internal', dbname='northwind', user='postgres', password='postgres', port='55432')
-        self.vn.connect_to_clickhouse(host='192.168.2.242', dbname='bitcoin', user='default', password='password', port=8123)
+        self.vn.connect_to_clickhouse(host='192.168.2.241', dbname='bitcoin', user='default', password='password', port=8123)
         # df_information_schema = self.vn.run_sql("SELECT table_catalog, table_schema, table_name, column_name, ordinal_position, data_type, is_nullable FROM INFORMATION_SCHEMA.COLUMNS WHERE table_schema ='public'")
         # print(f"df_information_schema:{df_information_schema.to_string(index=False)}")
         # plan = self.vn.get_training_plan_generic(df_information_schema)
