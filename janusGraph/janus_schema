@@ -1,0 +1,77 @@
+// ===== Open mgmt =====
+mgmt = graph.openManagement()
+
+// ===== Property Keys =====
+transactionHash = mgmt.makePropertyKey('transaction_hash').dataType(String.class).cardinality(Cardinality.SINGLE).make()
+outputIndex     = mgmt.makePropertyKey('output_index').dataType(Integer.class).cardinality(Cardinality.SINGLE).make()
+outputType      = mgmt.makePropertyKey('output_type').dataType(String.class).cardinality(Cardinality.SINGLE).make()
+outputValue     = mgmt.makePropertyKey('output_value').dataType(Double.class).cardinality(Cardinality.SINGLE).make()
+isCoinbase      = mgmt.makePropertyKey('is_coinbase').dataType(Boolean.class).cardinality(Cardinality.SINGLE).make()
+
+blockHash       = mgmt.makePropertyKey('block_hash').dataType(String.class).cardinality(Cardinality.SINGLE).make()
+blockNumber     = mgmt.makePropertyKey('block_number').dataType(Long.class).cardinality(Cardinality.SINGLE).make()
+blockTimestamp  = mgmt.makePropertyKey('block_timestamp').dataType(Date.class).cardinality(Cardinality.SINGLE).make()
+
+addressProp     = mgmt.makePropertyKey('address').dataType(String.class).cardinality(Cardinality.SINGLE).make()
+
+// ===== Vertex Labels =====
+vOutput        = mgmt.makeVertexLabel('output').make()
+vTransaction   = mgmt.makeVertexLabel('transaction').make()
+vBlock         = mgmt.makeVertexLabel('block').make()
+vAddress       = mgmt.makeVertexLabel('address').make()
+
+// ===== Edge Labels (set multiplicity to reflect data semantics) =====
+// Many outputs -> one spending transaction; each output spends at most once.
+eSpentBy      = mgmt.makeEdgeLabel('spent_by').multiplicity(Multiplicity.MANY2ONE).make()
+// One transaction -> many outputs it creates.
+eLockTo       = mgmt.makeEdgeLabel('lock_to').multiplicity(Multiplicity.ONE2MANY).make()
+// Many outputs -> many addresses (multisig etc.).
+ePayTo        = mgmt.makeEdgeLabel('pay_to').multiplicity(Multiplicity.MULTI).make()
+// One block -> exactly one coinbase tx (but allow ONE2ONE safely).
+eCoinbase     = mgmt.makeEdgeLabel('coinbase').multiplicity(Multiplicity.ONE2ONE).make()
+// Many transactions -> one block that includes them.
+eBelongsTo    = mgmt.makeEdgeLabel('belongs_to').multiplicity(Multiplicity.MANY2ONE).make()
+// Many children (forks) -> one previous block.
+eChainTo      = mgmt.makeEdgeLabel('chain_to').multiplicity(Multiplicity.MANY2ONE).make()
+
+// ===== Composite Indexes (fast equality lookups) =====
+// Uniqueness where appropriate:
+idxTxByHash       = mgmt.buildIndex('tx_by_hash', Vertex.class).addKey(transactionHash).indexOnly(vTransaction).unique().buildCompositeIndex()
+idxAddressByAddr  = mgmt.buildIndex('address_by_addr', Vertex.class).addKey(addressProp).indexOnly(vAddress).unique().buildCompositeIndex()
+idxBlockByHash    = mgmt.buildIndex('block_by_hash', Vertex.class).addKey(blockHash).indexOnly(vBlock).unique().buildCompositeIndex()
+
+// Block number is not globally unique across forks: make it non-unique (for “find block by number”).
+idxBlockByNumber  = mgmt.buildIndex('block_by_number', Vertex.class).addKey(blockNumber).indexOnly(vBlock).buildCompositeIndex()
+
+// Output identity (tx_hash + vout) is unique.
+idxOutputByTxVout = mgmt.buildIndex('output_by_txhash_vout', Vertex.class).addKey(transactionHash).addKey(outputIndex).indexOnly(vOutput).unique().buildCompositeIndex()
+
+// (Optional) convenience index to fetch txs by block quickly if you also copy block_hash to tx vertices.
+// If you prefer pure edge traversal via belongs_to, you can skip this.
+// Uncomment if you decide to denormalize block_hash on transaction vertices:
+// txBlockHash = mgmt.makePropertyKey('block_hash_on_tx').dataType(String.class).cardinality(Cardinality.SINGLE).make()
+// idxTxByBlockHash = mgmt.buildIndex('tx_by_block_hash', Vertex.class).addKey(txBlockHash).indexOnly(vTransaction).buildCompositeIndex()
+
+mgmt.commit()
+
+// ===== Wait for index registration (then enable) =====
+mgmt = graph.openManagement()
+for (name in ['tx_by_hash','address_by_addr','block_by_hash','block_by_number','output_by_txhash_vout']) {mgmt.awaitGraphIndexStatus(graph, name).status(SchemaStatus.REGISTERED).call()}
+mgmt.commit()
+
+mgmt = graph.openManagement()
+mgmt.updateIndex(mgmt.getGraphIndex('tx_by_hash'), SchemaAction.ENABLE_INDEX)
+mgmt.updateIndex(mgmt.getGraphIndex('address_by_addr'), SchemaAction.ENABLE_INDEX)
+mgmt.updateIndex(mgmt.getGraphIndex('block_by_hash'), SchemaAction.ENABLE_INDEX)
+mgmt.updateIndex(mgmt.getGraphIndex('block_by_number'), SchemaAction.ENABLE_INDEX)
+mgmt.updateIndex(mgmt.getGraphIndex('output_by_txhash_vout'), SchemaAction.ENABLE_INDEX)
+// If you created idxTxByBlockHash above, enable it too.
+// mgmt.updateIndex(mgmt.getGraphIndex('tx_by_block_hash'), SchemaAction.ENABLE_INDEX)
+mgmt.commit()
+
+// (Optional) await ENABLED state before heavy writes:
+mgmt = graph.openManagement()
+for (name in ['tx_by_hash','address_by_addr','block_by_hash','block_by_number','output_by_txhash_vout']) {
+  mgmt.awaitGraphIndexStatus(graph, name).status(SchemaStatus.ENABLED).call()
+}
+mgmt.commit()

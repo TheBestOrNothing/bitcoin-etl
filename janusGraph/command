@@ -1,0 +1,30 @@
+./gremlin.sh
+
+         \,,,/
+         (o o)
+-----oOOo-(3)-oOOo-----
+plugin activated: tinkerpop.server
+plugin activated: tinkerpop.utilities
+plugin activated: tinkerpop.tinkergraph
+gremlin> :remote connect tinkerpop.server conf/remote.yaml session
+==>Configured localhost/127.0.0.1:8182-[c239520c-105b-438a-aa6b-8fa32be77555]
+gremlin> 
+gremlin> 
+gremlin> :remote console
+==>All scripts will now be sent to Gremlin Server - [localhost/127.0.0.1:8182]-[c239520c-105b-438a-aa6b-8fa32be77555] - type ':remote console' to return to local mode
+gremlin> 
+gremlin> 
+gremlin> g.v().limit(5)
+No signature of method: org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource.v() is applicable for argument types: () values: []
+Possible solutions: V([Ljava.lang.Object;), E([Ljava.lang.Object;), tx(), io(java.lang.String), is(java.lang.Object), any()
+
+gremlin> GraphOfTheGodsFactory.load(graph)
+==>null
+gremlin> g = graph.traversal()
+==>graphtraversalsource[standardjanusgraph[cql:[jce-cassandra]], standard]
+gremlin> g.V().limit(5)
+==>v[4128]
+==>v[12304]
+==>v[8304]
+==>v[8272]
+==>v[4240]
