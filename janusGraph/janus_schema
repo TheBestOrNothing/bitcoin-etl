@@ -11,6 +11,7 @@ isCoinbase      = mgmt.makePropertyKey('is_coinbase').dataType(Boolean.class).ca
 blockHash       = mgmt.makePropertyKey('block_hash').dataType(String.class).cardinality(Cardinality.SINGLE).make()
 blockNumber     = mgmt.makePropertyKey('block_number').dataType(Long.class).cardinality(Cardinality.SINGLE).make()
 blockTimestamp  = mgmt.makePropertyKey('block_timestamp').dataType(Date.class).cardinality(Cardinality.SINGLE).make()
+previousBlockHash = mgmt.makePropertyKey('previous_block_hash').dataType(Date.class).cardinality(Cardinality.SINGLE).make()
 
 addressProp     = mgmt.makePropertyKey('address').dataType(String.class).cardinality(Cardinality.SINGLE).make()
 
