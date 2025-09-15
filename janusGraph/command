@@ -28,3 +28,11 @@ gremlin> g.V().limit(5)
 ==>v[8304]
 ==>v[8272]
 ==>v[4240]
+
+# print Schema
+gremlin> mgmt = graph.openManagement()
+==>org.janusgraph.graphdb.database.management.ManagementSystem@3fb9b0e0
+gremlin> mgmt.printSchema()
+
+# find block by number
+g.V().hasLabel('block').has('block_number', 903412).limit(1)
