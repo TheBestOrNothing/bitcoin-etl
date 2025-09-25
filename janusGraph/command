@@ -36,3 +36,11 @@ gremlin> mgmt.printSchema()
 
 # find block by number
 g.V().hasLabel('block').has('block_number', 903412).limit(1)
+
+
+# cql
+
+JanusGraph g = JanusGraphFactory.build().
+set("storage.backend", "cql").
+set("storage.hostname", "127.0.0.1").
+open();
