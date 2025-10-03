@@ -1,0 +1,46 @@
+-- Space
+CREATE SPACE IF NOT EXISTS bitcoin
+  (partition_num=300, replica_factor=1, vid_type=FIXED_STRING(120));
+USE bitcoin;
+
+-- Tags (vertices)
+CREATE TAG IF NOT EXISTS block(
+  block_number INT64,
+  block_timestamp DATETIME,
+  previous_block_hash STRING
+);
+
+CREATE TAG IF NOT EXISTS transaction(
+  is_coinbase BOOL
+  -- (optional but recommended) block_number INT64, block_timestamp DATETIME
+);
+
+-- Output vertex (VID = "<tx_hash>:<vout>")
+CREATE TAG IF NOT EXISTS output(
+  transaction_hash STRING,
+  output_index INT,
+  output_type STRING,     -- keep for Gremlin parity; can be NULL
+  output_value DOUBLE
+);
+
+CREATE TAG IF NOT EXISTS address(
+  address STRING
+);
+
+-- Edge types
+CREATE EDGE IF NOT EXISTS belongs_to();               -- (tx) -> (block)
+CREATE EDGE IF NOT EXISTS spent_by(                   -- (output) -> (spending tx)
+  spent_input_index INT
+);
+CREATE EDGE IF NOT EXISTS lock_to(                    -- (tx) -> (output)
+  output_index INT                                    -- optional; see design notes below
+);
+CREATE EDGE IF NOT EXISTS pay_to();                   -- (output) -> (address)
+CREATE EDGE IF NOT EXISTS coinbase();                 -- (block) -> (coinbase tx)
+CREATE EDGE IF NOT EXISTS chain_to();                 -- (child block) -> (parent block)
+
+CREATE TAG INDEX IF NOT EXISTS block_by_number ON block(block_number);
+REBUILD TAG INDEX block_by_number;
+
+CREATE TAG INDEX IF NOT EXISTS block_ts_index ON block(block_timestamp);
+REBUILD TAG INDEX block_ts_index;
