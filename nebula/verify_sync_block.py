@@ -25,6 +25,7 @@ class BlockSyncVerifier:
     def __init__(self):
         # Initialize ClickHouse client
         self.ch_client = get_client(**CLICKHOUSE_CONFIG)
+        print("Connected to ClickHouse")
         
         # Initialize Nebula client with custom timeout settings
         config = Config()
@@ -35,22 +36,33 @@ class BlockSyncVerifier:
         
         self.nebula_connection_pool = ConnectionPool()
         self.nebula_connection_pool.init(NEBULA_CONFIG['graphd_hosts'], config)
+        print("Connected to Nebula Graph")
+
 
     def get_clickhouse_block_counts(self, block_number: int) -> Dict[str, int]:
         """Get counts from ClickHouse for a specific block"""
         counts = {}
+        print(f"\n{'='*80}")
+        print(f"Getting ClickHouse counts for block {block_number}".center(80))
+        print(f"{'='*80}")
+        
+        # Define format string for consistent output
+        fmt = "{:<10} {:<14} {:<54}"
         
         # Count block
         block_query = f"SELECT COUNT(*) FROM blocks WHERE number = {block_number}"
         counts['block'] = self.ch_client.query(block_query).result_rows[0][0]
+        print(fmt.format("VERTEX", "block", f"Count: {counts['block']}"))
         
         # Count transactions
         tx_query = f"SELECT COUNT(*) FROM transactions WHERE block_number = {block_number}"
         counts['transactions'] = self.ch_client.query(tx_query).result_rows[0][0]
+        print(fmt.format("VERTEX", "transaction", f"Count: {counts['transactions']}"))
         
         # Count outputs
         output_query = f"SELECT COUNT(*) FROM outputs WHERE block_number = {block_number}"
         counts['outputs'] = self.ch_client.query(output_query).result_rows[0][0]
+        print(fmt.format("VERTEX", "output", f"Count: {counts['outputs']}"))
         
         # Count unique addresses
         address_query = f"""
@@ -60,18 +72,22 @@ class BlockSyncVerifier:
             AND notEmpty(addresses)
         """
         counts['addresses'] = self.ch_client.query(address_query).result_rows[0][0]
-
+        print(fmt.format("VERTEX", "address", f"Count: {counts['addresses']}"))
+        
         # Count edges
         counts['belongs_to'] = counts['transactions']
+        print(fmt.format("EDGE", "belongs_to", f"Count: {counts['belongs_to']}"))
         
         spent_by_query = f"""
             SELECT count()
-            FROM outputs
-            WHERE block_number = {block_number} AND (toUInt64(revision) > 0)
+            FROM inputs 
+            WHERE block_number = {block_number}
         """
         counts['spent_by'] = self.ch_client.query(spent_by_query).result_rows[0][0]
+        print(fmt.format("EDGE", "spent_by", f"Count: {counts['spent_by']}"))
         
         counts['lock_to'] = counts['outputs']
+        print(fmt.format("EDGE", "lock_to", f"Count: {counts['lock_to']}"))
         
         pay_to_query = f"""
             SELECT count()
@@ -83,6 +99,7 @@ class BlockSyncVerifier:
             )
         """
         counts['pay_to'] = self.ch_client.query(pay_to_query).result_rows[0][0]
+        print(fmt.format("EDGE", "pay_to", f"Count: {counts['pay_to']}"))
         
         coinbase_query = f"""
             SELECT count()
@@ -91,22 +108,29 @@ class BlockSyncVerifier:
                 AND toBool(is_coinbase) = true
         """
         counts['coinbase'] = self.ch_client.query(coinbase_query).result_rows[0][0]
+        print(fmt.format("EDGE", "coinbase", f"Count: {counts['coinbase']}"))
         
-        # Chain_to is always 1 for each block except genesis
         counts['chain_to'] = 1 if block_number > 0 else 0
+        print(fmt.format("EDGE", "chain_to", f"Count: {counts['chain_to']}"))
         
         return counts
 
     def get_nebula_block_counts(self, block_number: int) -> Dict[str, int]:
         """Get counts from Nebula for a specific block"""
         counts = {}
+        print(f"\n{'='*80}")
+        print(f"Getting Nebula counts for block {block_number}".center(80))
+        print(f"{'='*80}")
+        
+        # Define format string for consistent output
+        fmt = "{:<10} {:<14} {:<54}"
         
         with self.nebula_connection_pool.session_context(
             NEBULA_CONFIG['username'],
             NEBULA_CONFIG['password']
         ) as session:
             session.execute(f'USE {NEBULA_CONFIG["space"]}')
-            
+        
             # Vertex queries
             vertex_queries = {
                 'block': f'MATCH (v:block) WHERE v.block.block_number == {block_number} RETURN COUNT(v)',
@@ -114,26 +138,97 @@ class BlockSyncVerifier:
                 'outputs': f'MATCH (v:output)<-[:lock_to]-(t:transaction)-[:belongs_to]->(b:block) WHERE b.block.block_number == {block_number} RETURN COUNT(v)',
                 'addresses': f'MATCH (v:address)<-[:pay_to]-(o:output)<-[:lock_to]-(t:transaction)-[:belongs_to]->(b:block) WHERE b.block.block_number == {block_number} RETURN COUNT(DISTINCT v)'
             }
+
+            vertex_queries2 = {
+                # block itself
+                'block': f'''
+                MATCH (b:block{{block_number: {block_number}}})
+                RETURN COUNT(b)
+                ''',
+
+                # transactions in the block
+                'transactions': f'''
+                MATCH (b:block{{block_number: {block_number}}})<-[:belongs_to]-(t:transaction)
+                RETURN COUNT(t)
+                ''',
+
+                # outputs created by those transactions
+                'outputs': f'''
+                MATCH (b:block{{block_number: {block_number}}})
+                        <-[:belongs_to]-(t:transaction)-[:lock_to]->(o:output)
+                RETURN COUNT(o)
+                ''',
+
+                # distinct addresses paid by those outputs
+                'addresses': f'''
+                MATCH (b:block{{block_number: {block_number}}})
+                        <-[:belongs_to]-(t:transaction)-[:lock_to]->(o:output)-[:pay_to]->(a:address)
+                RETURN COUNT(DISTINCT a)
+                '''
+            }
+
             
             # Edge queries
             edge_queries = {
                 'belongs_to': f'MATCH (t:transaction)-[e:belongs_to]->(b:block) WHERE b.block.block_number == {block_number} RETURN COUNT(e)',
                 'spent_by': f'MATCH (o:output)-[e:spent_by]->(t:transaction)-[:belongs_to]->(b:block) WHERE b.block.block_number == {block_number} RETURN COUNT(e)',
-                'lock_to': f'MATCH (t:transaction)-[e:lock_to]->(o:output) WITH t, e, o MATCH (t)-[:belongs_to]->(b:block) WHERE b.block.block_number == {block_number} RETURN COUNT(e)',
-                'pay_to': f'MATCH (o:output)-[e:pay_to]->(a:address) WITH o, e, a MATCH (t:transaction)-[:lock_to]->(o)-[:belongs_to]->(b:block) WHERE b.block.block_number == {block_number} RETURN COUNT(e)',
+                'lock_to': f'MATCH (b:block{block_number: {block_number}})<-[:belongs_to]-(t:transaction)-[e:lock_to]->(o:output) RETURN COUNT(e)',
+                'pay_to': f'MATCH (b:block{block_number: {block_number}})<-[:belongs_to]-(t:transaction)-[:lock_to]->(o:output)-[e:pay_to]->(a:address) RETURN COUNT(e);',
                 'coinbase': f'MATCH (b:block)-[e:coinbase]->(t:transaction) WHERE b.block.block_number == {block_number} RETURN COUNT(e)',
-                'chain_to': f'MATCH (child:block)-[e:chain_to]->(parent:block) WHERE child.block.block_number == {block_number} RETURN COUNT(e)'
+                'coinbase': f'MATCH (b:block{block_number: {block_number}})-[e:coinbase]->(t:transaction) RETURN COUNT(e)',
+                'chain_to': f'MATCH (child:block{block_number: {block_number}})-[e:chain_to]->(parent:block) RETURN COUNT(e)'
             }
             
+            edge_queries2 = {
+                # (tx) -> (block)
+                'belongs_to': f'''
+                MATCH (b:block{{block_number: {block_number}}})<-[e:belongs_to]-(t:transaction)
+                RETURN COUNT(e)
+                ''',
+
+                # (output) -spent_by-> (tx that spends it) -> (block)
+                # count spent_by edges whose *spending tx* is in the target block
+                'spent_by': f'''
+                MATCH (b:block{{block_number: {block_number}}})<-[:belongs_to]-(t:transaction)<-[e:spent_by]-(o:output)
+                RETURN COUNT(e)
+                ''',
+
+                # (tx in block) -lock_to-> (output)
+                'lock_to': f'''
+                MATCH (b:block{{block_number: {block_number}}})<-[:belongs_to]-(t:transaction)-[e:lock_to]->(o:output)
+                RETURN COUNT(e)
+                ''',
+
+                # (tx in block) -lock_to-> (output) -pay_to-> (address)
+                'pay_to': f'''
+                MATCH (b:block{{block_number: {block_number}}})<-[:belongs_to]-(t:transaction)
+                        -[:lock_to]->(o:output)-[e:pay_to]->(a:address)
+                RETURN COUNT(e)
+                ''',
+
+                # (block) -coinbase-> (coinbase tx)
+                'coinbase': f'''
+                MATCH (b:block{{block_number: {block_number}}})-[e:coinbase]->(t:transaction)
+                RETURN COUNT(e)
+                ''',
+
+                # (child block) -chain_to-> (parent block)
+                'chain_to': f'''
+                MATCH (child:block{{block_number: {block_number}}})-[e:chain_to]->(parent:block)
+                RETURN COUNT(e)
+                '''
+            }
+
             # Execute all queries
-            for queries in [vertex_queries, edge_queries]:
+            for queries in [vertex_queries2, edge_queries2]:
                 for entity, query in queries.items():
                     result = session.execute(query)
                     if result.is_succeeded() and result.rows():
                         counts[entity] = result.rows()[0].values[0].get_iVal()
                     else:
                         counts[entity] = 0
-        
+                    print(fmt.format("VERTEX" if "block" in entity or "transaction" in entity or "output" in entity or "address" in entity else "EDGE", entity, f"Count: {counts[entity]}"))
+    
         return counts
 
     def verify_block(self, block_number: int) -> Tuple[bool, Dict]:
@@ -168,6 +263,8 @@ def main():
     parser.add_argument('--end-block', type=int, help='End block number for range verification')
     args = parser.parse_args()
     
+
+    print("starting...")
     verifier = BlockSyncVerifier()
     
     if args.block is not None:
